@@ -1,6 +1,11 @@
 {
-  "buildCommand": "npm install && npm run build -w frontend",
-  "outputDirectory": "frontend/dist",
-  "installCommand": "echo skip",
-  "framework": null
+  "experimentalServices": {
+    "frontend": {
+      "root": "frontend",
+      "installCommand": "cd .. && npm install",
+      "buildCommand": "cd .. && npm run build -w frontend",
+      "outputDirectory": "dist",
+      "framework": "vite"
+    }
+  }
 }
