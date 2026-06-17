@@ -4,7 +4,6 @@
       "root": "frontend",
       "installCommand": "cd .. && npm install",
       "buildCommand": "cd .. && npm run build -w frontend",
-      "outputDirectory": "dist",
       "framework": "vite"
     }
   }
