@@ -1,0 +1,90 @@
+/* Tokens primero, luego Tailwind. */
+@import './styles/tokens.css';
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: var(--pieia-font-sans);
+  }
+  body {
+    margin: 0;
+    background-color: var(--pieia-color-background);
+    background-image:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.65), rgba(255, 255, 255, 0)),
+      repeating-linear-gradient(0deg, transparent 0, transparent 59px, var(--pieia-color-grid) 60px),
+      repeating-linear-gradient(90deg, transparent 0, transparent 59px, var(--pieia-color-grid) 60px);
+    background-attachment: fixed;
+    color: var(--pieia-color-on-surface);
+    font-size: var(--pieia-text-body);
+    -webkit-font-smoothing: antialiased;
+  }
+  /* Foco visible siempre (REGLAS §16). Nunca outline:none sin reemplazo. */
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--pieia-focus-ring);
+    border-radius: var(--pieia-radius-sm);
+  }
+}
+
+@layer components {
+  .pieia-shell {
+    @apply min-h-screen;
+  }
+
+  .pieia-shell-band {
+    @apply border-b backdrop-blur-md;
+    border-color: color-mix(in srgb, var(--pieia-color-outline) 70%, transparent);
+    background-color: color-mix(in srgb, var(--pieia-color-background) 85%, transparent);
+  }
+
+  .pieia-technical-panel {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--pieia-color-surface) 96%, transparent), color-mix(in srgb, var(--pieia-color-surface) 90%, transparent));
+    box-shadow: var(--pieia-elevation-1);
+  }
+
+  .pieia-highlight-frame {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .pieia-highlight-frame::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(110deg, transparent 0%, transparent 42%, var(--pieia-color-grid-strong) 50%, transparent 58%, transparent 100%);
+    transform: translateX(-120%);
+    animation: pieia-sweep 12s linear infinite;
+    pointer-events: none;
+    opacity: 0.35;
+  }
+
+  .pieia-kpi {
+    @apply rounded-card border bg-surface px-4 py-4 shadow-1;
+    border-color: color-mix(in srgb, var(--pieia-color-outline) 78%, transparent);
+  }
+
+  .pieia-divider-label {
+    @apply inline-flex items-center gap-2 rounded-full border bg-surface px-3 py-1 font-medium text-on-surface-variant;
+    font-size: var(--pieia-text-label);
+    border-color: color-mix(in srgb, var(--pieia-color-outline) 78%, transparent);
+  }
+
+  .pieia-logo-slot {
+    @apply rounded-card border border-dashed;
+    border-color: var(--pieia-color-outline);
+    background-color: color-mix(in srgb, var(--pieia-color-surface-variant) 60%, transparent);
+  }
+}
+
+@keyframes pieia-sweep {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(120%);
+  }
+}

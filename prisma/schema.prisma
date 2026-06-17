@@ -1,0 +1,11 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["pieia"]
+}
+
+// El esquema "core" es gestionado por la infraestructura de R4D.
+// Define tus modelos aquí usando @@schema("pieia")

@@ -1,0 +1,369 @@
+// Esquema Prisma — STARTER (subconjunto del modelo de datos del TRD §5).
+// El esquema completo es la tarea #16 del backlog. Convencion: tablas/columnas en
+// snake_case en espanol (via @@map/@map), id UUID, created_at/updated_at en todas.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL") // conexion pooled (pgbouncer) para la app
+  directUrl = env("DIRECT_URL")   // conexion directa para migraciones (prisma migrate)
+}
+
+// ---------- Enums (espejo de packages/contracts/src/enums.js) ----------
+
+enum RolProyecto {
+  admin
+  coordinador
+  calculista
+  dibujante
+  cliente
+  lectura
+}
+
+enum EstadoTarea {
+  bloqueada
+  pendiente
+  en_desarrollo
+  en_espera_cliente
+  en_revision
+  con_observaciones
+  aprobada
+  invalidada
+}
+
+enum TipoDependencia {
+  fin_a_inicio
+  entregable_aprobado
+}
+
+enum TipoEntregable {
+  dwg_arquitectonico
+  dwg_topografia
+  pdf_mecanica_suelos
+  std_modelo
+  xlsx_diseno
+  dwg_planos
+  pdf_memoria
+  xlsx_catalogo
+  otro
+}
+
+enum OrigenVersion {
+  humano
+  agente
+}
+
+enum ResultadoRevision {
+  aprobado
+  con_observaciones
+}
+
+enum EstadoObservacion {
+  abierta
+  resuelta
+}
+
+enum DecisionCambio {
+  absorbido
+  cotizado
+  rechazado
+}
+
+// ---------- Configuracion y plantillas ----------
+
+model Disciplina {
+  id        String      @id @default(uuid())
+  nombre    String      @unique
+  activa    Boolean     @default(true)
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+  tipologias Tipologia[]
+
+  @@map("disciplina")
+}
+
+model Tipologia {
+  id           String          @id @default(uuid())
+  disciplinaId String          @map("disciplina_id")
+  clave        String          @unique
+  nombre       String
+  descripcion  String?
+  activa       Boolean         @default(true)
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+  disciplina   Disciplina      @relation(fields: [disciplinaId], references: [id])
+  plantillas   PlantillaTarea[]
+  proyectos    Proyecto[]
+
+  @@map("tipologia")
+}
+
+model PlantillaTarea {
+  id            String    @id @default(uuid())
+  tipologiaId   String    @map("tipologia_id")
+  nombre        String
+  descripcion   String?
+  orden         Int       @default(0)
+  complejidad   Int       @default(1)
+  repetitividad Int       @default(1)
+  horasTeoricas Float?    @map("horas_teoricas")
+  rolSugerido   String?   @map("rol_sugerido")
+  esCritica     Boolean   @default(false) @map("es_critica")
+  dependeDeOrdenes Int[]  @default([]) @map("depende_de_ordenes") // ordenes de las plantillas predecesoras
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  tipologia     Tipologia @relation(fields: [tipologiaId], references: [id])
+
+  @@map("plantilla_tarea")
+}
+
+// ---------- Usuarios, proyectos y flujo ----------
+
+// El password y el login viven en Supabase Auth + core.Profile (mismo id que aqui,
+// via @r4d-26/core). Usuario solo guarda lo especifico de PIEIA.
+model Usuario {
+  id            String            @id @default(uuid())
+  nombre        String
+  email         String            @unique
+  esAdmin       Boolean           @default(false) @map("es_admin")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+  membresias           MiembroProyecto[]
+  tareas               Tarea[]
+  versionesSubidas     VersionEntregable[]
+  revisiones           Revision[]
+  cambiosDecididos     CambioAlcance[]
+  notificaciones       Notificacion[]
+  invitacionesEnviadas Invitacion[]
+
+  @@map("usuario")
+}
+
+model Proyecto {
+  id              String            @id @default(uuid())
+  clave           String            @unique
+  nombre          String
+  clienteNombre   String            @map("cliente_nombre")
+  estado          String?
+  municipio       String?
+  tipologiaId     String            @map("tipologia_id")
+  fechaInicio     DateTime?         @map("fecha_inicio")
+  fechaCompromiso DateTime?         @map("fecha_compromiso")
+  estadoProyecto  String            @default("activo") @map("estado_proyecto")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+  tipologia       Tipologia         @relation(fields: [tipologiaId], references: [id])
+  componentes     Componente[]
+  miembros        MiembroProyecto[]
+  cambios         CambioAlcance[]
+  invitaciones    Invitacion[]
+
+  @@map("proyecto")
+}
+
+model Componente {
+  id         String   @id @default(uuid())
+  proyectoId String   @map("proyecto_id")
+  nombre     String   @default("General")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  proyecto   Proyecto @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
+  tareas     Tarea[]
+
+  @@map("componente")
+}
+
+model Tarea {
+  id              String      @id @default(uuid())
+  componenteId    String      @map("componente_id")
+  nombre          String
+  asignadoA       String?     @map("asignado_a")
+  estado          EstadoTarea @default(bloqueada)
+  complejidad     Int         @default(1)
+  repetitividad   Int         @default(1)
+  horasEstimadas  Float?      @map("horas_estimadas")
+  horasReales     Float?      @map("horas_reales")
+  esperaClienteSegundos     Int       @default(0) @map("espera_cliente_segundos")
+  esperaClienteDesde        DateTime? @map("espera_cliente_desde")
+  requiereAprobacionCliente Boolean   @default(false) @map("requiere_aprobacion_cliente")
+  aprobadoCliente           Boolean   @default(false) @map("aprobado_cliente")
+  fechaAprobacionCliente    DateTime? @map("fecha_aprobacion_cliente")
+  esCritica       Boolean     @default(false) @map("es_critica")
+  orden           Int         @default(0)
+  fechaLimite     DateTime?   @map("fecha_limite")
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  componente      Componente  @relation(fields: [componenteId], references: [id], onDelete: Cascade)
+  asignado        Usuario?    @relation(fields: [asignadoA], references: [id])
+  predecesoras    Dependencia[] @relation("sucesora")
+  sucesoras       Dependencia[] @relation("predecesora")
+  entregables     Entregable[]
+
+  @@map("tarea")
+}
+
+model Dependencia {
+  id              String          @id @default(uuid())
+  predecesoraId   String          @map("tarea_predecesora_id")
+  sucesoraId      String          @map("tarea_sucesora_id")
+  tipo            TipoDependencia @default(fin_a_inicio)
+  createdAt       DateTime        @default(now()) @map("created_at")
+  predecesora     Tarea           @relation("predecesora", fields: [predecesoraId], references: [id], onDelete: Cascade)
+  sucesora        Tarea           @relation("sucesora", fields: [sucesoraId], references: [id], onDelete: Cascade)
+
+  @@unique([predecesoraId, sucesoraId])
+  @@map("dependencia")
+}
+
+// Entregables y versionado inmutable (TRD §5, MOD-C / RF-C02)
+
+model Entregable {
+  id              String              @id @default(uuid())
+  tareaId         String              @map("tarea_id")
+  nombre          String
+  tipo            TipoEntregable      @default(otro)
+  obligatorio     Boolean             @default(false)
+  versionActualId String?             @unique @map("version_actual_id")
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+  tarea           Tarea               @relation(fields: [tareaId], references: [id], onDelete: Cascade)
+  versionActual   VersionEntregable?  @relation("actual", fields: [versionActualId], references: [id])
+  versiones       VersionEntregable[] @relation("historial")
+
+  @@map("entregable")
+}
+
+model VersionEntregable {
+  id            String        @id @default(uuid())
+  entregableId  String        @map("entregable_id")
+  numero        Int
+  nombreArchivo String        @map("nombre_archivo")
+  storagePath   String        @map("storage_path")
+  tamanoBytes   Int           @map("tamano_bytes")
+  hashSha256    String        @map("hash_sha256")
+  subidoPor     String        @map("subido_por")
+  origen        OrigenVersion @default(humano)
+  notas         String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  entregable    Entregable    @relation("historial", fields: [entregableId], references: [id], onDelete: Cascade)
+  actualDe      Entregable?   @relation("actual")
+  subidoPorUsuario Usuario    @relation(fields: [subidoPor], references: [id])
+  revisiones    Revision[]
+
+  apsUrn    String?  @map("aps_urn")
+  apsListo  Boolean  @default(false) @map("aps_listo")
+
+  @@unique([entregableId, numero])
+  @@map("version_entregable")
+}
+
+// Control de calidad: revisiones (firma interna) y observaciones (MOD-D, RF-D02/D03)
+
+model Revision {
+  id                  String            @id @default(uuid())
+  versionEntregableId String            @map("version_entregable_id")
+  revisorId           String            @map("revisor_id")
+  resultado           ResultadoRevision
+  comentario          String?
+  hashVersion         String            @map("hash_version") // hash exacto de la version firmada (RF-D03)
+  firmadoEn           DateTime          @default(now()) @map("firmado_en")
+  version             VersionEntregable @relation(fields: [versionEntregableId], references: [id], onDelete: Cascade)
+  revisor             Usuario           @relation(fields: [revisorId], references: [id])
+  observaciones       Observacion[]
+
+  @@map("revision")
+}
+
+model Observacion {
+  id                   String            @id @default(uuid())
+  revisionId           String            @map("revision_id")
+  texto                String
+  anclaje              Json?             // markup APS / coordenadas PDF (para el visor, MOD-D #30)
+  estado               EstadoObservacion @default(abierta)
+  resueltaConVersionId String?           @map("resuelta_con_version_id")
+  justificacion        String?
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  revision             Revision          @relation(fields: [revisionId], references: [id], onDelete: Cascade)
+
+  @@map("observacion")
+}
+
+// Motor de cambios de alcance (MOD-F). Append-only: registra cada cambio y su decision.
+model CambioAlcance {
+  id               String         @id @default(uuid())
+  proyectoId       String         @map("proyecto_id")
+  descripcion      String
+  tareaRaizId      String?        @map("tarea_raiz_id")
+  tareasAfectadas  Json           @map("tareas_afectadas") // snapshot del impacto
+  horasRetrabajo   Float          @map("horas_retrabajo")
+  decision         DecisionCambio
+  decididoPor      String         @map("decidido_por")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  proyecto         Proyecto       @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
+  decidioUsuario   Usuario        @relation(fields: [decididoPor], references: [id])
+
+  @@map("cambio_alcance")
+}
+
+model Notificacion {
+  id        String   @id @default(uuid())
+  usuarioId String   @map("usuario_id")
+  tipo      String   // tarea_revision | tarea_aprobada | tarea_observaciones | observacion_resuelta | cambio_alcance | tarea_invalidada
+  titulo    String
+  cuerpo    String?
+  leida     Boolean  @default(false)
+  url       String?  // deep-link frontend (ej: /proyectos/:id)
+  createdAt DateTime @default(now()) @map("created_at")
+  usuario   Usuario  @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, leida])
+  @@map("notificacion")
+}
+
+// Plantillas de verificacion por tipo de entregable (RF-D04).
+model ChecklistRevisionItem {
+  id             String         @id @default(uuid())
+  tipoEntregable TipoEntregable
+  texto          String
+  orden          Int            @default(0)
+  activo         Boolean        @default(true)
+  createdAt      DateTime       @default(now()) @map("created_at")
+
+  @@map("checklist_revision_item")
+}
+
+model MiembroProyecto {
+  id         String      @id @default(uuid())
+  proyectoId String      @map("proyecto_id")
+  usuarioId  String      @map("usuario_id")
+  rol        RolProyecto
+  createdAt  DateTime    @default(now()) @map("created_at")
+  proyecto   Proyecto    @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
+  usuario    Usuario     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@unique([proyectoId, usuarioId])
+  @@map("miembro_proyecto")
+}
+
+// Invitaciones por token: única forma de incorporar nuevos usuarios a PIEIA.
+model Invitacion {
+  id            String      @id @default(uuid())
+  email         String
+  token         String      @unique
+  rol           RolProyecto @default(lectura)
+  esAdmin       Boolean     @default(false) @map("es_admin")
+  proyectoId    String?     @map("proyecto_id")
+  invitadoPorId String      @map("invitado_por_id")
+  expiraEn      DateTime    @map("expira_en")
+  usadaEn       DateTime?   @map("usada_en")
+  createdAt     DateTime    @default(now()) @map("created_at")
+
+  proyecto      Proyecto?   @relation(fields: [proyectoId], references: [id], onDelete: SetNull)
+  invitadoPor   Usuario     @relation(fields: [invitadoPorId], references: [id])
+
+  @@map("invitacion")
+}

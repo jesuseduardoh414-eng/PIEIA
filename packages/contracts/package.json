@@ -1,0 +1,14 @@
+{
+  "name": "@pieia/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Contratos compartidos (enums de dominio y esquemas Zod) entre frontend y backend",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "zod": "^3.23.8"
+  }
+}

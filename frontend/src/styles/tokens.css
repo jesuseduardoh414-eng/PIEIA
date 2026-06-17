@@ -1,0 +1,147 @@
+/* ============================================================
+   DESIGN TOKENS — PIEIA  (REGLAS_DISENO_Sistema.md §3, §4)
+   3 niveles: primitivos -> semanticos -> de componente.
+   Estos son los valores DEFAULT. En runtime, el ThemeProvider
+   puede sobreescribir los semanticos desde la tabla `tema` (Supabase)
+   sin recompilar. Los overrides por modulo se inyectan en [data-module].
+   ============================================================ */
+
+:root {
+  /* ---------- Nivel 1: primitivos (paleta cruda, NO usar directo) ---------- */
+  --pieia-blue-50: #e8f0ff;
+  --pieia-blue-100: #c7dafd;
+  --pieia-blue-600: #2563eb;
+  --pieia-blue-700: #1d4ed8;
+  --pieia-blue-800: #183b9b;
+  --pieia-cyan-500: #06b6d4;
+  --pieia-cyan-700: #0f766e;
+  --pieia-violet-600: #7c3aed;
+  --pieia-amber-500: #f59e0b;
+  --pieia-gray-25: #f7f9fc;
+  --pieia-gray-50: #f3f5f8;
+  --pieia-gray-100: #ecf0f4;
+  --pieia-gray-200: #d9e0e8;
+  --pieia-gray-300: #c1cad6;
+  --pieia-gray-500: #66758a;
+  --pieia-gray-700: #334155;
+  --pieia-gray-900: #0f172a;
+  --pieia-white: #ffffff;
+
+  /* ---------- Nivel 1: escala de espaciado (grilla 4/8) ---------- */
+  --pieia-space-1: 4px;
+  --pieia-space-2: 8px;
+  --pieia-space-3: 12px;
+  --pieia-space-4: 16px;
+  --pieia-space-6: 24px;
+  --pieia-space-8: 32px;
+
+  /* ---------- Nivel 1: radios y tipografia ---------- */
+  --pieia-radius-sm: 4px;
+  --pieia-radius-md: 8px;
+  --pieia-radius-lg: 8px;
+  --pieia-font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  /* ---------- Nivel 1: escala tipografica (roles MD3) ---------- */
+  --pieia-text-headline: 1.5rem;   /* titulo de pagina */
+  --pieia-text-title: 1.125rem;    /* titulo de card/seccion */
+  --pieia-text-body: 0.9375rem;    /* texto general */
+  --pieia-text-label: 0.8125rem;   /* botones, etiquetas, encabezados de tabla */
+
+  /* ===================================================================
+     Nivel 2: SEMANTICOS — los que consumen los componentes (modo CLARO)
+     =================================================================== */
+  --pieia-color-primary: var(--pieia-blue-700);
+  --pieia-color-on-primary: var(--pieia-white);
+  --pieia-color-secondary: var(--pieia-cyan-700);
+  --pieia-color-on-secondary: var(--pieia-white);
+
+  --pieia-color-background: var(--pieia-gray-25);
+  --pieia-color-surface: #fbfcfe;
+  --pieia-color-surface-variant: var(--pieia-gray-100);
+  --pieia-color-on-surface: var(--pieia-gray-900);
+  --pieia-color-on-surface-variant: var(--pieia-gray-500);
+  --pieia-color-outline: var(--pieia-gray-300);
+  --pieia-color-accent: var(--pieia-cyan-500);
+  --pieia-color-grid: rgba(29, 78, 216, 0.07);
+  --pieia-color-grid-strong: rgba(6, 182, 212, 0.14);
+  --pieia-color-panel-glow: rgba(124, 58, 237, 0.12);
+
+  --pieia-color-success: #2e7d32;
+  --pieia-color-warning: var(--pieia-amber-500);
+  --pieia-color-error: #c62828;
+  --pieia-color-ai: var(--pieia-violet-600); /* identidad "Borrador IA" */
+
+  --pieia-elevation-0: none;
+  --pieia-elevation-1: 0 1px 2px rgba(15, 23, 42, 0.05), 0 8px 24px rgba(15, 23, 42, 0.04);
+  --pieia-elevation-2: 0 2px 8px rgba(15, 23, 42, 0.07), 0 18px 48px rgba(15, 23, 42, 0.06);
+  --pieia-elevation-3: 0 12px 32px rgba(15, 23, 42, 0.12);
+
+  --pieia-focus-ring: 0 0 0 3px rgba(21, 101, 192, 0.35);
+
+  /* Radios semanticos */
+  --pieia-radius-control: var(--pieia-radius-md);
+  --pieia-radius-card: var(--pieia-radius-lg);
+
+  /* ---------- Nivel 2: movimiento (editable por tema) ---------- */
+  --pieia-motion-duration-fast: 120ms;
+  --pieia-motion-duration-base: 200ms;
+  --pieia-motion-duration-slow: 320ms;
+  --pieia-motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --pieia-motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1.2);
+  --pieia-motion-ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
+  /* ===================================================================
+     Nivel 3: DE COMPONENTE (heredan del semantico; override quirurgico)
+     =================================================================== */
+  --pieia-button-radius: var(--pieia-radius-control);
+  --pieia-button-height-sm: 32px;
+  --pieia-button-height-md: 40px;
+  --pieia-button-height-lg: 48px;
+
+  --pieia-input-border: var(--pieia-color-outline);
+  --pieia-input-radius: var(--pieia-radius-control);
+  --pieia-input-height: 40px;
+
+  --pieia-table-row-height: 48px;
+  --pieia-table-header-bg: var(--pieia-color-surface-variant);
+}
+
+/* ===================================================================
+   Modo OSCURO — solo reescribe semanticos (Nivel 2). REGLAS §6.2:
+   la elevacion se refuerza con superficie mas clara, no solo sombra.
+   =================================================================== */
+[data-theme='dark'] {
+  --pieia-color-primary: var(--pieia-blue-600);
+  --pieia-color-on-primary: var(--pieia-white);
+
+  --pieia-color-background: #0b1220;
+  --pieia-color-surface: #111b2e;
+  --pieia-color-surface-variant: #172337;
+  --pieia-color-on-surface: #e6edf7;
+  --pieia-color-on-surface-variant: #93a3b8;
+  --pieia-color-outline: #2b3b55;
+  --pieia-color-accent: #22d3ee;
+  --pieia-color-grid: rgba(96, 165, 250, 0.08);
+  --pieia-color-grid-strong: rgba(34, 211, 238, 0.16);
+  --pieia-color-panel-glow: rgba(124, 58, 237, 0.18);
+
+  --pieia-color-success: #66bb6a;
+  --pieia-color-warning: #ffa726;
+  --pieia-color-error: #ef5350;
+  --pieia-color-ai: #ba68c8;
+
+  --pieia-elevation-1: 0 1px 2px rgba(0, 0, 0, 0.32), 0 12px 32px rgba(0, 0, 0, 0.18);
+  --pieia-elevation-2: 0 6px 18px rgba(0, 0, 0, 0.3), 0 24px 64px rgba(0, 0, 0, 0.22);
+  --pieia-elevation-3: 0 20px 48px rgba(0, 0, 0, 0.4);
+
+  --pieia-focus-ring: 0 0 0 3px rgba(25, 118, 210, 0.5);
+}
+
+/* Accesibilidad: respeta prefers-reduced-motion (REGLAS §15.3) */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --pieia-motion-duration-fast: 0ms;
+    --pieia-motion-duration-base: 0ms;
+    --pieia-motion-duration-slow: 0ms;
+  }
+}
