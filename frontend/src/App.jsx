@@ -12,6 +12,7 @@ import Portal from '@/pages/Portal';
 import Admin from '@/pages/Admin';
 import AceptarInvitacion from '@/pages/AceptarInvitacion';
 import Notificaciones from '@/components/Notificaciones';
+import Agentes from '@/pages/Agentes';
 
 export default function App() {
   const { mode, toggle } = useTheme();
@@ -102,6 +103,17 @@ export default function App() {
                   <FolderOpen className="h-3.5 w-3.5" />
                   Proyectos
                 </NavLink>
+                <NavLink
+                  to="/agentes"
+                  className={({ isActive }) =>
+                    `inline-flex items-center gap-1.5 rounded-control px-3 py-1.5 text-label font-medium transition-colors ${
+                      isActive ? 'bg-ai text-white' : 'text-on-surface-variant hover:bg-surface-variant'
+                    }`
+                  }
+                >
+                  <BrainCircuit className="h-3.5 w-3.5" />
+                  Agentes IA
+                </NavLink>
                 {user.esAdmin && (
                   <NavLink
                     to="/admin"
@@ -139,6 +151,7 @@ export default function App() {
         <Routes>
           <Route path="/proyectos" element={<Proyectos />} />
           <Route path="/proyectos/:id" element={<Proyectos />} />
+          <Route path="/agentes" element={<Agentes />} />
           {user.esAdmin && <Route path="/admin" element={<Admin />} />}
           <Route path="*" element={<Navigate to="/proyectos" replace />} />
         </Routes>
