@@ -1,10 +1,1 @@
-{
-  "experimentalServices": {
-    "frontend": {
-      "root": "frontend",
-      "installCommand": "cd .. && npm install",
-      "buildCommand": "cd .. && npm run build -w frontend",
-      "framework": "vite"
-    }
-  }
-}
+{}
