@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, GitBranch, History } from 'lucide-react';
-import { api } from '@/lib/api';
+import { AlertTriangle, GitBranch, History, FileDown } from 'lucide-react';
+import { api, API_URL } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 
 const CLASIF = {
@@ -170,6 +170,14 @@ export default function CambiosAlcance({ proyectoId, tareas, onChanged }) {
                   <span className="text-on-surface-variant">{c.horasRetrabajo} h</span>
                   <span className="text-on-surface-variant">por {c.decidioUsuario?.nombre}</span>
                   <span className="text-on-surface-variant">{new Date(c.createdAt).toLocaleDateString('es-MX')}</span>
+                  <a
+                    href={`${API_URL}/api/proyectos/${proyectoId}/cambios/${c.id}/reporte`}
+                    className="ml-auto inline-flex items-center gap-1 rounded-control px-2 py-1 text-xs text-primary hover:bg-primary/10 transition-colors"
+                    title="Descargar reporte de impacto"
+                  >
+                    <FileDown className="h-3.5 w-3.5" />
+                    Reporte
+                  </a>
                 </div>
               </li>
             ))}

@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth, requireProjectRole } from '../middleware/auth.js';
 import { notificarMiembros } from '../lib/notificaciones.js';
+import { generarReporteCambio } from '../lib/reporteCambio.js';
+import { guardarArchivo } from '../lib/storage.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -119,6 +121,19 @@ router.post('/:proyectoId/cambios', requireProjectRole('coordinador'), async (re
       url: `/proyectos/${req.params.proyectoId}`,
     }, [req.user.id]).catch(() => {});
 
+    // Generar reporte DOCX en segundo plano (no bloquea la respuesta)
+    const proyecto = await prisma.proyecto.findUnique({ where: { id: req.params.proyectoId }, select: { clave: true, nombre: true, clienteNombre: true, municipio: true } });
+    generarReporteCambio({
+      proyecto,
+      cambio: resultado.cambio,
+      afectadas: impacto.afectadas,
+      decidioPor: req.user.nombre || req.user.email,
+    }).then(async (buffer) => {
+      const path = `cambios/${resultado.cambio.id}/reporte_impacto.docx`;
+      await guardarArchivo(path, buffer);
+      await prisma.cambioAlcance.update({ where: { id: resultado.cambio.id }, data: { reportePath: path } });
+    }).catch((e) => console.error('[Cambio] Error generando reporte:', e?.message));
+
     res.status(201).json({ ...resultado.cambio, invalidadas: resultado.invalidadas });
   } catch (err) {
     next(err);
@@ -137,6 +152,37 @@ router.get('/:proyectoId/cambios', requireProjectRole(), async (req, res, next) 
   } catch (err) {
     next(err);
   }
+});
+
+// Descarga del reporte PDF de un cambio de alcance (RF-F04)
+router.get('/:proyectoId/cambios/:cambioId/reporte', requireProjectRole(), async (req, res, next) => {
+  try {
+    const cambio = await prisma.cambioAlcance.findFirst({
+      where: { id: req.params.cambioId, proyectoId: req.params.proyectoId },
+      include: { proyecto: { select: { clave: true, nombre: true, clienteNombre: true, municipio: true } }, decidioUsuario: { select: { nombre: true } } },
+    });
+    if (!cambio) return res.status(404).json({ error: 'Cambio no encontrado' });
+
+    // Si ya tiene reporte guardado, devuelve ese
+    if (cambio.reportePath) {
+      const { obtenerBuffer } = await import('../lib/storage.js');
+      const buffer = await obtenerBuffer(cambio.reportePath);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename="reporte_cambio_${cambio.proyecto.clave}.docx"`);
+      return res.send(buffer);
+    }
+
+    // Si no, genera al vuelo
+    const buffer = await generarReporteCambio({
+      proyecto: cambio.proyecto,
+      cambio,
+      afectadas: cambio.tareasAfectadas ?? [],
+      decidioPor: cambio.decidioUsuario?.nombre ?? 'Coordinador',
+    });
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="reporte_cambio_${cambio.proyecto.clave}.docx"`);
+    res.send(buffer);
+  } catch (err) { next(err); }
 });
 
 export default router;

@@ -309,6 +309,7 @@ model CambioAlcance {
   horasRetrabajo   Float          @map("horas_retrabajo")
   decision         DecisionCambio
   decididoPor      String         @map("decidido_por")
+  reportePath      String?        @map("reporte_path")
   createdAt        DateTime       @default(now()) @map("created_at")
   proyecto         Proyecto       @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
   decidioUsuario   Usuario        @relation(fields: [decididoPor], references: [id])
