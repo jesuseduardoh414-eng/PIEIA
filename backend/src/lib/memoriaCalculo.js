@@ -1,4 +1,5 @@
 import { anthropic, MODELO_MEMORIA } from './anthropic.js';
+import { calcularCostoAnthropic } from './costos.js';
 
 const ESQUEMA_MEMORIA = {
   type: 'object',
@@ -52,5 +53,12 @@ ${datosDiseno}`;
 
   const bloque = respuesta.content.find((b) => b.type === 'text');
   if (!bloque) throw new Error('Claude no devolvio contenido de texto');
-  return JSON.parse(bloque.text);
+  const resultado = JSON.parse(bloque.text);
+  resultado._meta = {
+    modelo: MODELO_MEMORIA,
+    inputTokens: respuesta.usage?.input_tokens ?? 0,
+    outputTokens: respuesta.usage?.output_tokens ?? 0,
+    costoUsd: calcularCostoAnthropic(MODELO_MEMORIA, respuesta.usage?.input_tokens ?? 0, respuesta.usage?.output_tokens ?? 0),
+  };
+  return resultado;
 }

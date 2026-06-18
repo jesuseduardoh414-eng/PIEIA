@@ -23,10 +23,10 @@ export async function embedTextos(textos, intento = 1) {
     throw new Error(`Voyage AI error ${res.status}: ${err}`);
   }
   const data = await res.json();
-  return data.data.map((d) => d.embedding);
+  return { embeddings: data.data.map((d) => d.embedding), totalTokens: data.usage?.total_tokens ?? 0 };
 }
 
 export async function embedTexto(texto) {
-  const [emb] = await embedTextos([texto]);
-  return emb;
+  const { embeddings, totalTokens } = await embedTextos([texto]);
+  return { embedding: embeddings[0], totalTokens };
 }

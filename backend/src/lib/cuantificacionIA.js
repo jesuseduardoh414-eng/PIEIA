@@ -1,5 +1,6 @@
 import XLSX from 'xlsx';
 import { anthropic } from './anthropic.js';
+import { calcularCostoAnthropic } from './costos.js';
 
 const ESQUEMA_CATALOGO = {
   type: 'object',
@@ -73,5 +74,12 @@ export async function generarCatalogoCuantificacion(buffer) {
 
   const bloque = respuesta.content.find((b) => b.type === 'text');
   if (!bloque) throw new Error('Claude no devolvio respuesta');
-  return JSON.parse(bloque.text);
+  const resultado = JSON.parse(bloque.text);
+  resultado._meta = {
+    modelo: 'claude-sonnet-4-6',
+    inputTokens: respuesta.usage?.input_tokens ?? 0,
+    outputTokens: respuesta.usage?.output_tokens ?? 0,
+    costoUsd: calcularCostoAnthropic('claude-sonnet-4-6', respuesta.usage?.input_tokens ?? 0, respuesta.usage?.output_tokens ?? 0),
+  };
+  return resultado;
 }

@@ -37,7 +37,9 @@ router.post('/ag01/cuantificar', uploadExcel.single('excel'), async (req, res, n
   try {
     if (!req.file) return res.status(400).json({ error: 'Sube un archivo Excel (.xlsx)' });
     const catalogo = await generarCatalogoCuantificacion(req.file.buffer);
-    if (ej) completarEjecucion(ej.id, { outputs: catalogo, duracionMs: Date.now() - t0, estado: 'pendiente_validacion' }).catch(() => {});
+    const meta = catalogo._meta ?? {};
+    delete catalogo._meta;
+    if (ej) completarEjecucion(ej.id, { outputs: catalogo, duracionMs: Date.now() - t0, costoUsd: meta.costoUsd, scoreConfianza: null, estado: 'pendiente_validacion' }).catch(() => {});
     res.json({ ...catalogo, ejecucionId: ej?.id });
   } catch (err) {
     if (ej) fallarEjecucion(ej.id, err).catch(() => {});
@@ -55,7 +57,9 @@ router.post('/ag04/indexar', uploadPDF.single('pdf'), async (req, res, next) => 
     if (!req.file) return res.status(400).json({ error: 'Sube un archivo PDF' });
     const tipo = req.body.tipo || 'documento';
     const resultado = await indexarPDF(req.file.buffer, req.file.originalname, tipo);
-    if (ej) completarEjecucion(ej.id, { outputs: resultado, duracionMs: Date.now() - t0, estado: 'aceptada' }).catch(() => {});
+    const meta = resultado._meta ?? {};
+    delete resultado._meta;
+    if (ej) completarEjecucion(ej.id, { outputs: resultado, duracionMs: Date.now() - t0, costoUsd: meta.costoUsd, estado: 'aceptada' }).catch(() => {});
     res.json(resultado);
   } catch (err) {
     if (ej) fallarEjecucion(ej.id, err).catch(() => {});
@@ -73,7 +77,9 @@ router.post('/ag04/consultar', async (req, res, next) => {
     const { pregunta, tipo } = req.body;
     if (!pregunta?.trim()) return res.status(400).json({ error: 'Escribe una pregunta' });
     const resultado = await consultarRAG(pregunta.trim(), tipo || null);
-    if (ej) completarEjecucion(ej.id, { outputs: { respuesta: resultado.respuesta?.slice(0, 200), fuentes: resultado.fuentes }, duracionMs: Date.now() - t0, estado: 'pendiente_validacion' }).catch(() => {});
+    const meta = resultado._meta ?? {};
+    delete resultado._meta;
+    if (ej) completarEjecucion(ej.id, { outputs: { respuesta: resultado.respuesta?.slice(0, 300), fuentes: resultado.fuentes }, duracionMs: Date.now() - t0, costoUsd: meta.costoUsd, estado: 'pendiente_validacion' }).catch(() => {});
     res.json(resultado);
   } catch (err) {
     if (ej) fallarEjecucion(ej.id, err).catch(() => {});

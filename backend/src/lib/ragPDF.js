@@ -4,6 +4,7 @@ const pdfParse = _require('pdf-parse');
 import { prisma } from './prisma.js';
 import { embedTextos, embedTexto } from './voyage.js';
 import { anthropic } from './anthropic.js';
+import { calcularCostoVoyage, calcularCostoAnthropic } from './costos.js';
 
 const CHUNK_SIZE = 900;
 const CHUNK_OVERLAP = 150;
@@ -16,7 +17,6 @@ function chunksDeTexto(texto) {
   for (const p of parrafos) {
     if ((actual + '\n' + p).length > CHUNK_SIZE && actual) {
       chunks.push(actual.trim());
-      // solapamiento: tomar los ultimos CHUNK_OVERLAP caracteres del chunk anterior
       actual = actual.slice(-CHUNK_OVERLAP) + '\n' + p;
     } else {
       actual = actual ? actual + '\n' + p : p;
@@ -31,38 +31,33 @@ export async function indexarPDF(buffer, nombre, tipo = 'documento') {
   const chunks = chunksDeTexto(text);
   if (chunks.length === 0) throw new Error('El PDF no contiene texto extraible');
 
-  // Embeddings en lotes de 20 (limite Voyage AI)
+  let totalTokensVoyage = 0;
   const embeddings = [];
   for (let i = 0; i < chunks.length; i += 5) {
     const lote = chunks.slice(i, i + 5);
-    const embs = await embedTextos(lote);
+    const { embeddings: embs, totalTokens } = await embedTextos(lote);
     embeddings.push(...embs);
-    if (i + 5 < chunks.length) await new Promise(r => setTimeout(r, 21000)); // 21s entre lotes (3 RPM)
+    totalTokensVoyage += totalTokens;
+    if (i + 5 < chunks.length) await new Promise(r => setTimeout(r, 21000));
   }
 
-  // Borrar indexacion previa del mismo archivo
   await prisma.$executeRawUnsafe(`DELETE FROM "DocumentoRAG" WHERE nombre = $1`, nombre);
 
-  // Insertar chunks
   for (let i = 0; i < chunks.length; i++) {
     const vec = `[${embeddings[i].join(',')}]`;
     await prisma.$executeRawUnsafe(
       `INSERT INTO "DocumentoRAG" ("id","nombre","tipo","chunkIndex","contenido","embedding","metadata","createdAt")
        VALUES (gen_random_uuid()::text, $1, $2, $3, $4, $5::vector, $6::jsonb, NOW())`,
-      nombre,
-      tipo,
-      i,
-      chunks[i],
-      vec,
-      JSON.stringify({ paginas: null }),
+      nombre, tipo, i, chunks[i], vec, JSON.stringify({ paginas: null }),
     );
   }
 
-  return { nombre, tipo, chunks: chunks.length };
+  const costoUsd = calcularCostoVoyage('voyage-3', totalTokensVoyage);
+  return { nombre, tipo, chunks: chunks.length, _meta: { modelo: 'voyage-3', totalTokensVoyage, costoUsd } };
 }
 
 export async function consultarRAG(pregunta, tipo = null) {
-  const embPregunta = await embedTexto(pregunta);
+  const { embedding: embPregunta, totalTokens: tokVoyage } = await embedTexto(pregunta);
   const vec = `[${embPregunta.join(',')}]`;
 
   const filtroTipo = tipo ? `AND tipo = '${tipo.replace(/'/g, "''")}'` : '';
@@ -87,18 +82,23 @@ export async function consultarRAG(pregunta, tipo = null) {
     system: `Eres un asistente tecnico de ingenieria estructural. Responde preguntas basandote EXCLUSIVAMENTE en los fragmentos de documentos proporcionados.
 Si la respuesta no esta en los fragmentos, di claramente que no encontraste esa informacion en los documentos disponibles.
 Cita la fuente entre parentesis al final de cada dato relevante. Responde en espanol formal tecnico.`,
-    messages: [
-      {
-        role: 'user',
-        content: `Documentos disponibles:\n\n${contexto}\n\n---\n\nPregunta: ${pregunta}`,
-      },
-    ],
+    messages: [{ role: 'user', content: `Documentos disponibles:\n\n${contexto}\n\n---\n\nPregunta: ${pregunta}` }],
   });
 
   const texto = respuesta.content.find((b) => b.type === 'text')?.text;
+  const costoVoyage = calcularCostoVoyage('voyage-3', tokVoyage);
+  const costoAnthropic = calcularCostoAnthropic('claude-sonnet-4-6', respuesta.usage?.input_tokens ?? 0, respuesta.usage?.output_tokens ?? 0);
+
   return {
     respuesta: texto,
     fuentes: resultados.map((r) => ({ nombre: r.nombre, similitud: Number(r.similitud).toFixed(3) })),
+    _meta: {
+      modelo: 'claude-sonnet-4-6 + voyage-3',
+      inputTokensAnthropic: respuesta.usage?.input_tokens ?? 0,
+      outputTokensAnthropic: respuesta.usage?.output_tokens ?? 0,
+      tokensVoyage: tokVoyage,
+      costoUsd: costoVoyage + costoAnthropic,
+    },
   };
 }
 

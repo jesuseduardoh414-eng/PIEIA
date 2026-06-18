@@ -5,6 +5,7 @@ import { rolEnProyecto } from '../lib/proyectoAcceso.js';
 import { crearVersionEntregable } from '../lib/versiones.js';
 import { generarMemoriaCalculo } from '../lib/memoriaCalculo.js';
 import { construirDocxMemoria } from '../lib/wordMemoria.js';
+import { registrarEjecucion, completarEjecucion, fallarEjecucion } from '../lib/bitacora.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -14,6 +15,9 @@ const ROLES_GENERAN = ['admin', 'coordinador', 'calculista']; // RF-A03/AG-03: r
 // AG-03: genera un borrador de memoria de calculo (.docx) con Claude a partir de
 // datos de diseno que el calculista pega manualmente, y lo guarda como entregable.
 router.post('/tareas/:tareaId/memoria-ia', async (req, res, next) => {
+  const t0 = Date.now();
+  let ej = null;
+  try { ej = await registrarEjecucion({ agente: 'AG-03', tareaId: req.params.tareaId, modelo: 'claude-sonnet-4-6', inputs: { tareaId: req.params.tareaId } }); } catch (_) {}
   try {
     const tarea = await prisma.tarea.findUnique({
       where: { id: req.params.tareaId },
@@ -38,6 +42,8 @@ router.post('/tareas/:tareaId/memoria-ia', async (req, res, next) => {
 
     const proyecto = tarea.componente.proyecto;
     const borrador = await generarMemoriaCalculo({ proyecto, tarea, datosDiseno });
+    const metaIA = borrador._meta ?? {};
+    delete borrador._meta;
     const buffer = await construirDocxMemoria({
       proyecto,
       tarea,
@@ -70,8 +76,16 @@ router.post('/tareas/:tareaId/memoria-ia', async (req, res, next) => {
     const version = await crearVersionEntregable(entregable.id, siguiente, file, req.user.id, { origen: 'agente', notas });
     await prisma.entregable.update({ where: { id: entregable.id }, data: { versionActualId: version.id } });
 
+    if (ej) completarEjecucion(ej.id, {
+      outputs: { entregableId: entregable.id, versionId: version.id },
+      duracionMs: Date.now() - t0,
+      costoUsd: metaIA.costoUsd,
+      estado: 'pendiente_validacion',
+    }).catch(() => {});
+
     res.status(201).json({ ...entregable, versionActualId: version.id, versiones: [version, ...entregable.versiones] });
   } catch (err) {
+    if (ej) fallarEjecucion(ej.id, err).catch(() => {});
     next(err);
   }
 });
