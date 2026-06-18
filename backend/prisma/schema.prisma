@@ -138,7 +138,8 @@ model Usuario {
   revisiones           Revision[]
   cambiosDecididos     CambioAlcance[]
   notificaciones       Notificacion[]
-  invitacionesEnviadas Invitacion[]
+  invitacionesEnviadas  Invitacion[]
+  cuantificaciones      Cuantificacion[]
 
   @@map("usuario")
 }
@@ -159,8 +160,9 @@ model Proyecto {
   tipologia       Tipologia         @relation(fields: [tipologiaId], references: [id])
   componentes     Componente[]
   miembros        MiembroProyecto[]
-  cambios         CambioAlcance[]
-  invitaciones    Invitacion[]
+  cambios          CambioAlcance[]
+  invitaciones     Invitacion[]
+  cuantificaciones Cuantificacion[]
 
   @@map("proyecto")
 }
@@ -369,6 +371,41 @@ model Invitacion {
   @@map("invitacion")
 }
 
+// ---------- MOD-G: Cuantificacion de proyecto ----------
+
+model Cuantificacion {
+  id          String   @id @default(uuid())
+  proyectoId  String   @map("proyecto_id")
+  nombre      String   @default("v1")
+  origen      String   @default("manual")
+  creadaPorId String   @map("creada_por_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  proyecto    Proyecto               @relation(fields: [proyectoId], references: [id], onDelete: Cascade)
+  creadaPor   Usuario                @relation(fields: [creadaPorId], references: [id])
+  partidas    PartidaCuantificacion[]
+
+  @@map("cuantificacion")
+}
+
+model PartidaCuantificacion {
+  id               String   @id @default(uuid())
+  cuantificacionId String   @map("cuantificacion_id")
+  conceptoId       String?  @map("concepto_id")
+  descripcion      String
+  unidad           String
+  cantidad         Decimal  @db.Decimal(12, 4)
+  precioUnitario   Decimal? @map("precio_unitario") @db.Decimal(12, 2)
+  origen           Json?
+  notas            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  cuantificacion   Cuantificacion    @relation(fields: [cuantificacionId], references: [id], onDelete: Cascade)
+  concepto         ConceptoCatalogo? @relation(fields: [conceptoId], references: [id])
+
+  @@map("partida_cuantificacion")
+}
+
 // ---------- MOD-G: Catalogo de conceptos y precios ----------
 
 model ConceptoCatalogo {
@@ -382,8 +419,9 @@ model ConceptoCatalogo {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  disciplina   Disciplina       @relation(fields: [disciplinaId], references: [id])
+  disciplina   Disciplina             @relation(fields: [disciplinaId], references: [id])
   precios      PrecioUnitario[]
+  partidas     PartidaCuantificacion[]
 
   @@unique([disciplinaId, clave])
   @@map("concepto_catalogo")

@@ -31,6 +31,7 @@ import { esperaSegundos, formatEspera } from '@/lib/espera';
 import EntregablesTarea from '@/components/EntregablesTarea';
 import MiembrosProyecto from '@/components/MiembrosProyecto';
 import CambiosAlcance from '@/components/CambiosAlcance';
+import PanelCuantificacion from '@/components/PanelCuantificacion';
 import emptyStateSrc from '@/assets/estado-vacio.png';
 
 const ACCIONES = {
@@ -436,6 +437,8 @@ function DetalleProyecto({ id, onBack }) {
           onCancel={() => setAddingComp(false)}
         />
       )}
+
+      <PanelCuantificacion proyectoId={id} miRol={data.miRol} />
 
       {data.componentes?.map((c) => (
         <section key={c.id} className="grid gap-3">
