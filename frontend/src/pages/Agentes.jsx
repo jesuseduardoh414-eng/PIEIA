@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { Upload, FileSpreadsheet, Download, AlertCircle, Loader2, BrainCircuit, BookOpen, Send, FileText } from 'lucide-react';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Upload, FileSpreadsheet, Download, AlertCircle, Loader2, BrainCircuit, BookOpen, Send, FileText, ClipboardList, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { api } from '@/lib/api';
 
@@ -144,6 +145,109 @@ function AgRAG() {
   );
 }
 
+const ESTADO_META = {
+  en_proceso:           { label: 'En proceso',           icon: Loader2,      color: 'text-warning' },
+  pendiente_validacion: { label: 'Pendiente validacion', icon: Clock,        color: 'text-primary' },
+  aceptada:             { label: 'Aceptada',             icon: CheckCircle,  color: 'text-success' },
+  editada:              { label: 'Editada',              icon: CheckCircle,  color: 'text-success' },
+  rechazada:            { label: 'Rechazada',            icon: XCircle,      color: 'text-error' },
+};
+
+function Bitacora() {
+  const qc = useQueryClient();
+  const [soloPendientes, setSoloPendientes] = useState(false);
+  const [expandido, setExpandido] = useState(null);
+  const [feedback, setFeedback] = useState('');
+
+  const { data: ejecuciones = [], isLoading } = useQuery({
+    queryKey: ['ejecuciones', soloPendientes],
+    queryFn: () => api.get(`/api/agentes/ejecuciones${soloPendientes ? '?pendientes=1' : ''}`),
+    refetchInterval: 15000,
+  });
+
+  const validar = useMutation({
+    mutationFn: ({ id, decision, feedback }) => api.patch(`/api/agentes/ejecuciones/${id}/validar`, { decision, feedback }),
+    onSuccess: () => { qc.invalidateQueries(['ejecuciones']); setExpandido(null); setFeedback(''); },
+  });
+
+  const pendientes = ejecuciones.filter(e => e.estado === 'pendiente_validacion').length;
+
+  return (
+    <div className="rounded-card border border-outline-variant bg-surface p-6 space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 text-primary" />
+          <h3 className="text-label font-semibold text-on-surface">Bitacora de ejecuciones IA</h3>
+          {pendientes > 0 && <span className="rounded-full bg-primary px-2 py-0.5 text-xs text-white">{pendientes} pendiente{pendientes !== 1 ? 's' : ''}</span>}
+        </div>
+        <label className="flex items-center gap-2 text-body-sm text-on-surface-variant cursor-pointer">
+          <input type="checkbox" checked={soloPendientes} onChange={e => setSoloPendientes(e.target.checked)} className="rounded" />
+          Solo pendientes de validacion
+        </label>
+      </div>
+      <p className="text-body-sm text-on-surface-variant">Registro inmutable de cada ejecucion de agente. Valida los outputs antes de usarlos en el proyecto.</p>
+
+      {isLoading ? <p className="text-body-sm text-on-surface-variant">Cargando...</p> : ejecuciones.length === 0 ? (
+        <p className="text-body-sm text-on-surface-variant">No hay ejecuciones registradas aun.</p>
+      ) : (
+        <div className="space-y-2">
+          {ejecuciones.map(e => {
+            const meta = ESTADO_META[e.estado] || ESTADO_META.en_proceso;
+            const Icon = meta.icon;
+            const abierto = expandido === e.id;
+            return (
+              <div key={e.id} className="rounded-card border border-outline-variant overflow-hidden">
+                <button onClick={() => setExpandido(abierto ? null : e.id)} className="w-full flex items-center gap-3 px-4 py-3 hover:bg-surface-variant/30 text-left">
+                  <Icon className={`h-4 w-4 shrink-0 ${meta.color} ${e.estado === 'en_proceso' ? 'animate-spin' : ''}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-label font-semibold text-on-surface">{e.agente}</span>
+                      {e.proyecto && <span className="text-body-sm text-on-surface-variant">{e.proyecto.clave}</span>}
+                      {e.tarea && <span className="text-body-sm text-on-surface-variant">· {e.tarea.nombre.slice(0, 40)}</span>}
+                    </div>
+                    <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                      <span className={`text-xs font-medium ${meta.color}`}>{meta.label}</span>
+                      <span className="text-xs text-on-surface-variant">{e.modelo}</span>
+                      {e.duracionMs && <span className="text-xs text-on-surface-variant">{(e.duracionMs / 1000).toFixed(1)}s</span>}
+                      {e.costoUsd && <span className="text-xs text-on-surface-variant">${e.costoUsd.toFixed(4)}</span>}
+                      {e.scoreConfianza && <span className="text-xs text-on-surface-variant">confianza {Math.round(e.scoreConfianza * 100)}%</span>}
+                      <span className="text-xs text-on-surface-variant">{new Date(e.createdAt).toLocaleString('es-MX')}</span>
+                    </div>
+                  </div>
+                  {abierto ? <ChevronUp className="h-4 w-4 text-on-surface-variant shrink-0" /> : <ChevronDown className="h-4 w-4 text-on-surface-variant shrink-0" />}
+                </button>
+
+                {abierto && (
+                  <div className="border-t border-outline-variant px-4 py-3 space-y-3 bg-surface-variant/20">
+                    {e.outputs && (
+                      <div>
+                        <p className="text-xs font-medium text-on-surface-variant mb-1">Output:</p>
+                        <pre className="text-xs bg-surface rounded p-2 overflow-auto max-h-48 text-on-surface">{JSON.stringify(e.outputs, null, 2)}</pre>
+                      </div>
+                    )}
+                    {e.validadoPor && <p className="text-xs text-on-surface-variant">Validado por: <strong>{e.validadoPor.nombre}</strong> · {e.feedback}</p>}
+
+                    {e.estado === 'pendiente_validacion' && (
+                      <div className="space-y-2">
+                        <textarea value={feedback} onChange={ev => setFeedback(ev.target.value)} placeholder="Comentario opcional (requerido si rechazas)..." rows={2} className="w-full rounded-control border border-outline-variant bg-surface px-3 py-2 text-body-sm resize-none" />
+                        <div className="flex gap-2">
+                          <Button size="sm" onClick={() => validar.mutate({ id: e.id, decision: 'aceptada', feedback })} leadingIcon={<CheckCircle className="h-3.5 w-3.5" />}>Aceptar</Button>
+                          <Button size="sm" variant="outlined" onClick={() => validar.mutate({ id: e.id, decision: 'editada', feedback })} leadingIcon={<CheckCircle className="h-3.5 w-3.5" />}>Aceptar con edicion</Button>
+                          <Button size="sm" variant="outlined" onClick={() => { if (!feedback) return alert('Escribe el motivo del rechazo'); validar.mutate({ id: e.id, decision: 'rechazada', feedback }); }} leadingIcon={<XCircle className="h-3.5 w-3.5" />}>Rechazar</Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Agentes() {
   const [archivo, setArchivo] = useState(null);
   const [cargando, setCargando] = useState(false);
@@ -199,6 +303,8 @@ export default function Agentes() {
           Herramientas de automatizacion asistidas por inteligencia artificial.
         </p>
       </div>
+
+      <Bitacora />
 
       <AgRAG />
 

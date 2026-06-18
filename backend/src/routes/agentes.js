@@ -3,6 +3,8 @@ import multer from 'multer';
 import { requireAuth } from '../middleware/auth.js';
 import { generarCatalogoCuantificacion } from '../lib/cuantificacionIA.js';
 import { indexarPDF, consultarRAG, listarDocumentos } from '../lib/ragPDF.js';
+import { registrarEjecucion, completarEjecucion, fallarEjecucion } from '../lib/bitacora.js';
+import { prisma } from '../lib/prisma.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -27,11 +29,15 @@ const uploadPDF = multer({
 
 // AG-01: cuantificacion automatica desde Excel de diseno estructural
 router.post('/ag01/cuantificar', uploadExcel.single('excel'), async (req, res, next) => {
+  const t0 = Date.now();
+  const ejecucion = await registrarEjecucion({ agente: 'AG-01', modelo: 'claude-sonnet-4-6', inputs: { archivo: req.file?.originalname } });
   try {
     if (!req.file) return res.status(400).json({ error: 'Sube un archivo Excel (.xlsx)' });
     const catalogo = await generarCatalogoCuantificacion(req.file.buffer);
-    res.json(catalogo);
+    await completarEjecucion(ejecucion.id, { outputs: catalogo, duracionMs: Date.now() - t0, estado: 'pendiente_validacion' });
+    res.json({ ...catalogo, ejecucionId: ejecucion.id });
   } catch (err) {
+    await fallarEjecucion(ejecucion.id, err);
     next(err);
   }
 });
@@ -68,6 +74,41 @@ router.get('/ag04/documentos', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
+});
+
+// ---- Bitacora de ejecuciones ----
+
+// Listar todas las ejecuciones (admin) o pendientes de validacion
+router.get('/ejecuciones', async (req, res, next) => {
+  try {
+    const where = req.query.pendientes === '1' ? { estado: 'pendiente_validacion' } : {};
+    const lista = await prisma.ejecucionAgente.findMany({
+      where,
+      include: {
+        proyecto: { select: { clave: true, nombre: true } },
+        tarea: { select: { nombre: true } },
+        validadoPor: { select: { nombre: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: req.user.esAdmin ? 100 : 50,
+    });
+    res.json(lista);
+  } catch (err) { next(err); }
+});
+
+// Validar una ejecucion (aceptar / editar / rechazar)
+router.patch('/ejecuciones/:id/validar', async (req, res, next) => {
+  try {
+    const { decision, feedback } = req.body; // decision: 'aceptada' | 'editada' | 'rechazada'
+    if (!['aceptada', 'editada', 'rechazada'].includes(decision))
+      return res.status(400).json({ error: 'decision debe ser aceptada, editada o rechazada' });
+    const ej = await prisma.ejecucionAgente.update({
+      where: { id: req.params.id },
+      data: { estado: decision, validadoPorId: req.user.id, feedback: feedback || null },
+      include: { proyecto: { select: { clave: true } }, validadoPor: { select: { nombre: true } } },
+    });
+    res.json(ej);
+  } catch (err) { next(err); }
 });
 
 export default router;

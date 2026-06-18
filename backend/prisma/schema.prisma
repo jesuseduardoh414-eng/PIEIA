@@ -140,6 +140,7 @@ model Usuario {
   notificaciones       Notificacion[]
   invitacionesEnviadas  Invitacion[]
   cuantificaciones      Cuantificacion[]
+  validaciones          EjecucionAgente[]
 
   @@map("usuario")
 }
@@ -162,7 +163,8 @@ model Proyecto {
   miembros        MiembroProyecto[]
   cambios          CambioAlcance[]
   invitaciones     Invitacion[]
-  cuantificaciones Cuantificacion[]
+  cuantificaciones  Cuantificacion[]
+  ejecuciones       EjecucionAgente[]
 
   @@map("proyecto")
 }
@@ -202,8 +204,9 @@ model Tarea {
   componente      Componente  @relation(fields: [componenteId], references: [id], onDelete: Cascade)
   asignado        Usuario?    @relation(fields: [asignadoA], references: [id])
   predecesoras    Dependencia[] @relation("sucesora")
-  sucesoras       Dependencia[] @relation("predecesora")
+  sucesoras       Dependencia[]   @relation("predecesora")
   entregables     Entregable[]
+  ejecuciones     EjecucionAgente[]
 
   @@map("tarea")
 }
@@ -369,6 +372,32 @@ model Invitacion {
   invitadoPor   Usuario     @relation(fields: [invitadoPorId], references: [id])
 
   @@map("invitacion")
+}
+
+// ---------- MOD-H: Bitacora de ejecuciones IA (append-only) ----------
+
+model EjecucionAgente {
+  id             String    @id @default(uuid())
+  agente         String
+  proyectoId     String?   @map("proyecto_id")
+  tareaId        String?   @map("tarea_id")
+  versionPrompt  String    @default("1.0.0") @map("version_prompt")
+  modelo         String
+  inputs         Json
+  outputs        Json?
+  scoreConfianza Float?    @map("score_confianza")
+  costoUsd       Float?    @map("costo_usd")
+  duracionMs     Int?      @map("duracion_ms")
+  estado         String    @default("en_proceso")
+  validadoPorId  String?   @map("validado_por_id")
+  feedback       String?
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  proyecto       Proyecto? @relation(fields: [proyectoId], references: [id])
+  tarea          Tarea?    @relation(fields: [tareaId], references: [id])
+  validadoPor    Usuario?  @relation(fields: [validadoPorId], references: [id])
+
+  @@map("ejecucion_agente")
 }
 
 // ---------- MOD-G: Cuantificacion de proyecto ----------
