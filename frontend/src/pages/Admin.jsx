@@ -19,6 +19,7 @@ const TABS = [
   { key: 'plantillas', label: 'Plantillas', icon: ListTree },
   { key: 'catalogo', label: 'Catalogo', icon: Workflow },
   { key: 'agentes', label: 'Agentes IA', icon: BrainCircuit },
+  { key: 'costos', label: 'Costos IA', icon: DollarSign },
 ];
 
 export default function Admin() {
@@ -64,6 +65,7 @@ export default function Admin() {
       {tab === 'plantillas' && <SeccionPlantillas />}
       {tab === 'catalogo' && <SeccionCatalogo />}
       {tab === 'agentes' && <SeccionAgentes />}
+      {tab === 'costos' && <SeccionCostosIA />}
     </div>
   );
 }
@@ -1133,6 +1135,116 @@ function SeccionAgentes() {
                 );
               })}
             </div>
+          )}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+
+// ─── Costos IA (RF-H04) ──────────────────────────────────────────────────────
+
+function SeccionCostosIA() {
+  const { data, isLoading } = useQuery({ queryKey: ['ia-costos'], queryFn: () => api.get('/api/admin/ia/costos'), refetchInterval: 30000 });
+
+  const fmtUsd = (n) => `$${Number(n).toFixed(4)} USD`;
+  const fmtN = (n) => Number(n).toLocaleString('es-MX');
+
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader><CardTitle icon={<DollarSign className="h-4 w-4" />}>Panel de costos IA (RF-H04)</CardTitle></CardHeader>
+        <CardBody className="space-y-5">
+          <p className="text-body-sm text-on-surface-variant">Gasto acumulado por agente, proyecto y mes calculado desde la bitacora de ejecuciones.</p>
+
+          {isLoading ? <p className="text-body-sm text-on-surface-variant">Cargando...</p> : !data ? null : (
+            <>
+              {/* Total global */}
+              <div className="rounded-card bg-primary/5 border border-primary/20 px-5 py-4 flex items-center justify-between">
+                <div>
+                  <p className="text-label text-on-surface-variant">Gasto total acumulado</p>
+                  <p className="text-headline font-bold text-primary">{fmtUsd(data.totalUsd)}</p>
+                </div>
+                <DollarSign className="h-8 w-8 text-primary/30" />
+              </div>
+
+              {/* Por agente */}
+              <div>
+                <p className="text-label font-semibold text-on-surface mb-2">Por agente</p>
+                {data.porAgente.length === 0 ? <p className="text-body-sm text-on-surface-variant">Sin datos aun.</p> : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-body-sm">
+                      <thead><tr className="border-b border-outline-variant">
+                        <th className="py-2 pr-4 text-left text-label font-medium text-on-surface-variant">Agente</th>
+                        <th className="py-2 pr-4 text-right text-label font-medium text-on-surface-variant">Ejecuciones</th>
+                        <th className="py-2 pr-4 text-right text-label font-medium text-on-surface-variant">Exitosas</th>
+                        <th className="py-2 pr-4 text-right text-label font-medium text-on-surface-variant">Duracion prom.</th>
+                        <th className="py-2 text-right text-label font-medium text-on-surface-variant">Costo USD</th>
+                      </tr></thead>
+                      <tbody>
+                        {data.porAgente.map((r, i) => (
+                          <tr key={i} className="border-b border-outline-variant/40">
+                            <td className="py-2 pr-4 font-mono text-primary font-semibold">{r.agente}</td>
+                            <td className="py-2 pr-4 text-right">{fmtN(r.total)}</td>
+                            <td className="py-2 pr-4 text-right text-success">{fmtN(r.exitosas)}</td>
+                            <td className="py-2 pr-4 text-right text-on-surface-variant">{r.duracion_prom_s}s</td>
+                            <td className="py-2 text-right font-mono">{fmtUsd(r.costo_total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Por proyecto */}
+              {data.porProyecto.length > 0 && (
+                <div>
+                  <p className="text-label font-semibold text-on-surface mb-2">Top proyectos por costo</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-body-sm">
+                      <thead><tr className="border-b border-outline-variant">
+                        <th className="py-2 pr-4 text-left text-label font-medium text-on-surface-variant">Clave</th>
+                        <th className="py-2 pr-4 text-left text-label font-medium text-on-surface-variant">Proyecto</th>
+                        <th className="py-2 pr-4 text-right text-label font-medium text-on-surface-variant">Ejecuciones</th>
+                        <th className="py-2 text-right text-label font-medium text-on-surface-variant">Costo USD</th>
+                      </tr></thead>
+                      <tbody>
+                        {data.porProyecto.map((r, i) => (
+                          <tr key={i} className="border-b border-outline-variant/40">
+                            <td className="py-2 pr-4 font-mono text-primary">{r.clave}</td>
+                            <td className="py-2 pr-4 text-on-surface">{r.nombre}</td>
+                            <td className="py-2 pr-4 text-right">{fmtN(r.ejecuciones)}</td>
+                            <td className="py-2 text-right font-mono">{fmtUsd(r.costo_total)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Por mes */}
+              {data.porMes.length > 0 && (
+                <div>
+                  <p className="text-label font-semibold text-on-surface mb-2">Gasto mensual</p>
+                  <div className="flex flex-wrap gap-3">
+                    {data.porMes.map((r, i) => (
+                      <div key={i} className="rounded-card border border-outline-variant px-4 py-3 min-w-[140px]">
+                        <p className="text-label text-on-surface-variant">{r.mes}</p>
+                        <p className="text-title font-semibold text-on-surface">{fmtUsd(r.costo_total)}</p>
+                        <p className="text-body-sm text-on-surface-variant">{fmtN(r.total)} ejecuciones</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-body-sm text-on-surface-variant">
+                Nota: el costo se registra solo cuando el agente reporta el valor. AG-04 (Voyage AI) no reporta costo por ejecucion en la version actual.
+              </p>
+            </>
           )}
         </CardBody>
       </Card>

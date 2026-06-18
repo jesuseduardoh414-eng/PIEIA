@@ -255,6 +255,49 @@ router.delete('/plantillas/:id', adminOnly, async (req, res, next) => {
   }
 });
 
+// ---- Panel de costos IA (RF-H04) ----
+
+router.get('/ia/costos', adminOnly, async (req, res, next) => {
+  try {
+    // Resumen por agente
+    const porAgente = await prisma.$queryRaw`
+      SELECT agente,
+             COUNT(*)::int AS total,
+             SUM(CASE WHEN estado NOT IN ('en_proceso','rechazada') THEN 1 ELSE 0 END)::int AS exitosas,
+             ROUND(COALESCE(SUM(costo_usd)::numeric, 0), 4) AS costo_total,
+             ROUND(AVG(duracion_ms)::numeric / 1000, 1) AS duracion_prom_s
+      FROM ejecucion_agente
+      GROUP BY agente
+      ORDER BY costo_total DESC`;
+
+    // Resumen por mes
+    const porMes = await prisma.$queryRaw`
+      SELECT TO_CHAR(created_at, 'YYYY-MM') AS mes,
+             COUNT(*)::int AS total,
+             ROUND(COALESCE(SUM(costo_usd)::numeric, 0), 4) AS costo_total
+      FROM ejecucion_agente
+      GROUP BY mes
+      ORDER BY mes DESC
+      LIMIT 12`;
+
+    // Top 5 proyectos por costo
+    const porProyecto = await prisma.$queryRaw`
+      SELECT p.clave, p.nombre,
+             COUNT(e.id)::int AS ejecuciones,
+             ROUND(COALESCE(SUM(e.costo_usd)::numeric, 0), 4) AS costo_total
+      FROM ejecucion_agente e
+      JOIN proyecto p ON p.id = e.proyecto_id
+      WHERE e.proyecto_id IS NOT NULL
+      GROUP BY p.id, p.clave, p.nombre
+      ORDER BY costo_total DESC
+      LIMIT 5`;
+
+    const totalUsd = porAgente.reduce((s, r) => s + Number(r.costo_total), 0);
+
+    res.json({ porAgente, porMes, porProyecto, totalUsd: Math.round(totalUsd * 10000) / 10000 });
+  } catch (err) { next(err); }
+});
+
 // ---- Feature flags de agentes (RF-H05) ----
 
 router.get('/agentes/flags', adminOnly, async (req, res, next) => {
