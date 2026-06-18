@@ -342,6 +342,12 @@ function EntregableItem({ entregable, onDone }) {
         {entregable.versiones.map((v) => (
           <li key={v.id} className="grid gap-x-3 gap-y-1 rounded-card bg-surface-variant/45 px-3 py-2 text-label text-on-surface-variant lg:flex lg:flex-wrap lg:items-center">
             <span className="font-semibold text-on-surface">v{v.numero}</span>
+            {v.origen === 'agente' && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-ai/10 px-2 py-0.5 text-xs font-semibold text-ai" title="Borrador generado por IA — pendiente de revision humana">
+                <Sparkles className="h-3 w-3" />
+                Borrador IA
+              </span>
+            )}
             <span className="min-w-0 flex-1 truncate font-medium text-on-surface">{v.nombreArchivo}</span>
             <span title="Tamaño del archivo">{fmtBytes(v.tamanoBytes)}</span>
             <span title="Subido por">por <strong className="text-on-surface">{v.subidoPorUsuario?.nombre}</strong></span>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, Check, ClipboardCheck, ListChecks } from 'lucide-react';
+import { ShieldCheck, Check, ClipboardCheck, ListChecks, Sparkles } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 
@@ -186,6 +186,11 @@ function RevisionItem({ revision, versiones, onDone }) {
       <div className="flex flex-wrap items-center gap-2 text-label text-on-surface-variant">
         <Chip texto={res.t} color={res.c} />
         <span>v{revision.version?.numero}</span>
+        {revision.version?.origen === 'agente' && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-ai/10 px-2 py-0.5 text-xs font-semibold text-ai">
+            <Sparkles className="h-3 w-3" /> Borrador IA
+          </span>
+        )}
         <span>por {revision.revisor?.nombre}</span>
         <span>{new Date(revision.firmadoEn).toLocaleString('es-MX')}</span>
         <span className="font-mono">firma {revision.hashVersion.slice(0, 10)}...</span>
