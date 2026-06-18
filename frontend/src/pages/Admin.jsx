@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Users, LayoutGrid, ShieldCheck, ShieldOff, Plus, ToggleLeft, ToggleRight,
   Workflow, FolderOpen, CheckSquare, ClipboardList, ListChecks, ListTree,
-  Mail, Trash2, RefreshCw,
+  Mail, Trash2, RefreshCw, Tag, DollarSign, ChevronDown, ChevronUp,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -17,6 +17,7 @@ const TABS = [
   { key: 'tipologias', label: 'Tipologias', icon: ClipboardList },
   { key: 'checklist', label: 'Checklist', icon: ListChecks },
   { key: 'plantillas', label: 'Plantillas', icon: ListTree },
+  { key: 'catalogo', label: 'Catalogo', icon: Workflow },
 ];
 
 export default function Admin() {
@@ -60,6 +61,7 @@ export default function Admin() {
       {tab === 'tipologias' && <SeccionTipologias />}
       {tab === 'checklist' && <SeccionChecklist />}
       {tab === 'plantillas' && <SeccionPlantillas />}
+      {tab === 'catalogo' && <SeccionCatalogo />}
     </div>
   );
 }
@@ -908,6 +910,165 @@ function SeccionInvitaciones() {
               </table>
             </div>
           )}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Catálogo de conceptos ────────────────────────────────────────────────────
+
+function SeccionCatalogo() {
+  const qc = useQueryClient();
+  const [disciplinaId, setDisciplinaId] = useState('');
+  const [expandido, setExpandido] = useState(null);
+  const [form, setForm] = useState({ clave: '', descripcion: '', unidad: '', alias: '' });
+  const [precioForm, setPrecioForm] = useState({ region: 'Noreste', precio: '', fuente: '', vigenciaDesde: new Date().toISOString().slice(0, 10) });
+  const [error, setError] = useState('');
+
+  const { data: disciplinas = [] } = useQuery({ queryKey: ['disciplinas'], queryFn: () => api.get('/api/admin/disciplinas') });
+  const { data: conceptos = [], isLoading } = useQuery({
+    queryKey: ['conceptos', disciplinaId],
+    queryFn: () => api.get('/api/catalogo/conceptos' + (disciplinaId ? `?disciplinaId=${disciplinaId}` : '')),
+  });
+  const { data: precios = [] } = useQuery({
+    queryKey: ['precios', expandido],
+    queryFn: () => expandido ? api.get(`/api/catalogo/conceptos/${expandido}/precios`) : [],
+    enabled: !!expandido,
+  });
+
+  const crearConcepto = useMutation({
+    mutationFn: (data) => api.post('/api/catalogo/conceptos', data),
+    onSuccess: () => { qc.invalidateQueries(['conceptos']); setForm({ clave: '', descripcion: '', unidad: '', alias: '' }); setError(''); },
+    onError: (e) => setError(e.message),
+  });
+  const eliminarConcepto = useMutation({
+    mutationFn: (id) => api.del(`/api/catalogo/conceptos/${id}`),
+    onSuccess: () => qc.invalidateQueries(['conceptos']),
+  });
+  const agregarPrecio = useMutation({
+    mutationFn: (data) => api.post(`/api/catalogo/conceptos/${expandido}/precios`, data),
+    onSuccess: () => { qc.invalidateQueries(['precios', expandido]); setPrecioForm({ region: 'Noreste', precio: '', fuente: '', vigenciaDesde: new Date().toISOString().slice(0, 10) }); },
+  });
+  const eliminarPrecio = useMutation({
+    mutationFn: (id) => api.del(`/api/catalogo/precios/${id}`),
+    onSuccess: () => qc.invalidateQueries(['precios', expandido]),
+  });
+
+  function submitConcepto(e) {
+    e.preventDefault();
+    if (!disciplinaId) return setError('Selecciona una disciplina');
+    crearConcepto.mutate({ ...form, disciplinaId, alias: form.alias ? form.alias.split(',').map(s => s.trim()).filter(Boolean) : [] });
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader><CardTitle icon={<Tag className="h-4 w-4" />}>Catalogo de conceptos de obra</CardTitle></CardHeader>
+        <CardBody className="space-y-4">
+          <p className="text-body-sm text-on-surface-variant">Define los conceptos de cuantificacion (concreto, acero, cimbra, etc.) por disciplina con sus unidades y alias. Los alias permiten que AG-01 mapee automaticamente las cantidades del Excel al concepto correcto.</p>
+
+          {/* Filtro disciplina */}
+          <div className="flex gap-3 items-center">
+            <select value={disciplinaId} onChange={e => setDisciplinaId(e.target.value)} className="rounded-control border border-outline-variant bg-surface px-3 py-1.5 text-body-sm">
+              <option value="">Todas las disciplinas</option>
+              {disciplinas.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+            </select>
+            <span className="text-body-sm text-on-surface-variant">{conceptos.length} conceptos</span>
+          </div>
+
+          {/* Tabla de conceptos */}
+          {isLoading ? <p className="text-body-sm text-on-surface-variant">Cargando...</p> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-body-sm">
+                <thead><tr className="border-b border-outline-variant">
+                  <th className="py-2 pr-3 text-left text-label font-medium text-on-surface-variant">Clave</th>
+                  <th className="py-2 pr-3 text-left text-label font-medium text-on-surface-variant">Descripcion</th>
+                  <th className="py-2 pr-3 text-left text-label font-medium text-on-surface-variant">Unidad</th>
+                  <th className="py-2 pr-3 text-left text-label font-medium text-on-surface-variant">Disciplina</th>
+                  <th className="py-2 pr-3 text-left text-label font-medium text-on-surface-variant">P.U. vigente</th>
+                  <th className="py-2 text-right text-label font-medium text-on-surface-variant"></th>
+                </tr></thead>
+                <tbody>
+                  {conceptos.map(c => (
+                    <>
+                      <tr key={c.id} className="border-b border-outline-variant/40 hover:bg-surface-variant/30">
+                        <td className="py-2 pr-3 font-mono text-xs text-primary">{c.clave}</td>
+                        <td className="py-2 pr-3 text-on-surface">{c.descripcion}</td>
+                        <td className="py-2 pr-3 text-on-surface-variant">{c.unidad}</td>
+                        <td className="py-2 pr-3 text-on-surface-variant">{c.disciplina?.nombre}</td>
+                        <td className="py-2 pr-3 text-on-surface">{c.precios?.[0] ? `$${Number(c.precios[0].precio).toLocaleString('es-MX')}` : <span className="text-on-surface-variant/50">sin precio</span>}</td>
+                        <td className="py-2 text-right">
+                          <div className="flex justify-end gap-1">
+                            <button onClick={() => setExpandido(expandido === c.id ? null : c.id)} className="rounded p-1 hover:bg-surface-variant text-on-surface-variant">
+                              {expandido === c.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                            </button>
+                            <button onClick={() => eliminarConcepto.mutate(c.id)} className="rounded p-1 hover:bg-error/10 text-on-surface-variant hover:text-error"><Trash2 className="h-3.5 w-3.5" /></button>
+                          </div>
+                        </td>
+                      </tr>
+                      {expandido === c.id && (
+                        <tr key={c.id + '-precios'} className="bg-surface-variant/20">
+                          <td colSpan={6} className="px-4 py-3">
+                            <div className="space-y-3">
+                              <p className="text-label font-medium text-on-surface-variant flex items-center gap-1"><DollarSign className="h-3.5 w-3.5" />Precios unitarios ({c.unidad})</p>
+                              {precios.length > 0 && (
+                                <table className="w-full text-body-sm"><thead><tr className="border-b border-outline-variant/40">
+                                  <th className="py-1 pr-3 text-left font-medium text-on-surface-variant">Region</th>
+                                  <th className="py-1 pr-3 text-left font-medium text-on-surface-variant">Precio</th>
+                                  <th className="py-1 pr-3 text-left font-medium text-on-surface-variant">Fuente</th>
+                                  <th className="py-1 pr-3 text-left font-medium text-on-surface-variant">Vigente desde</th>
+                                  <th></th>
+                                </tr></thead><tbody>
+                                  {precios.map(p => (
+                                    <tr key={p.id} className="border-b border-outline-variant/20">
+                                      <td className="py-1 pr-3">{p.region}</td>
+                                      <td className="py-1 pr-3 font-mono">${Number(p.precio).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</td>
+                                      <td className="py-1 pr-3 text-on-surface-variant">{p.fuente || '—'}</td>
+                                      <td className="py-1 pr-3 text-on-surface-variant">{new Date(p.vigenciaDesde).toLocaleDateString('es-MX')}</td>
+                                      <td className="py-1 text-right"><button onClick={() => eliminarPrecio.mutate(p.id)} className="text-on-surface-variant hover:text-error"><Trash2 className="h-3 w-3" /></button></td>
+                                    </tr>
+                                  ))}
+                                </tbody></table>
+                              )}
+                              <form onSubmit={e => { e.preventDefault(); agregarPrecio.mutate(precioForm); }} className="flex flex-wrap gap-2 items-end">
+                                <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Region</label><input value={precioForm.region} onChange={e => setPrecioForm(p => ({ ...p, region: e.target.value }))} className="rounded-control border border-outline-variant bg-surface px-2 py-1 text-body-sm w-28" /></div>
+                                <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Precio ({c.unidad})</label><input type="number" step="0.01" value={precioForm.precio} onChange={e => setPrecioForm(p => ({ ...p, precio: e.target.value }))} className="rounded-control border border-outline-variant bg-surface px-2 py-1 text-body-sm w-28" required /></div>
+                                <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Fuente</label><input value={precioForm.fuente} onChange={e => setPrecioForm(p => ({ ...p, fuente: e.target.value }))} placeholder="Ej. CMIC 2026" className="rounded-control border border-outline-variant bg-surface px-2 py-1 text-body-sm w-36" /></div>
+                                <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Vigente desde</label><input type="date" value={precioForm.vigenciaDesde} onChange={e => setPrecioForm(p => ({ ...p, vigenciaDesde: e.target.value }))} className="rounded-control border border-outline-variant bg-surface px-2 py-1 text-body-sm" required /></div>
+                                <Button type="submit" size="sm" leadingIcon={<Plus className="h-3.5 w-3.5" />}>Agregar precio</Button>
+                              </form>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  ))}
+                  {conceptos.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-body-sm text-on-surface-variant">No hay conceptos. Agrega el primero abajo.</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Formulario nuevo concepto */}
+          <div className="border-t border-outline-variant pt-4">
+            <p className="text-label font-medium text-on-surface mb-3">Agregar concepto</p>
+            {error && <p className="mb-2 text-body-sm text-error">{error}</p>}
+            <form onSubmit={submitConcepto} className="flex flex-wrap gap-2 items-end">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-on-surface-variant">Disciplina</label>
+                <select value={disciplinaId} onChange={e => setDisciplinaId(e.target.value)} className="rounded-control border border-outline-variant bg-surface px-2 py-1.5 text-body-sm" required>
+                  <option value="">Selecciona...</option>
+                  {disciplinas.map(d => <option key={d.id} value={d.id}>{d.nombre}</option>)}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Clave</label><input value={form.clave} onChange={e => setForm(f => ({ ...f, clave: e.target.value }))} placeholder="Ej. C-01" className="rounded-control border border-outline-variant bg-surface px-2 py-1.5 text-body-sm w-24" required /></div>
+              <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Descripcion</label><input value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Concreto fc=250 kg/cm² en cimentacion" className="rounded-control border border-outline-variant bg-surface px-2 py-1.5 text-body-sm w-72" required /></div>
+              <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Unidad</label><input value={form.unidad} onChange={e => setForm(f => ({ ...f, unidad: e.target.value }))} placeholder="M3" className="rounded-control border border-outline-variant bg-surface px-2 py-1.5 text-body-sm w-16" required /></div>
+              <div className="flex flex-col gap-1"><label className="text-xs text-on-surface-variant">Alias (separados por coma)</label><input value={form.alias} onChange={e => setForm(f => ({ ...f, alias: e.target.value }))} placeholder="concreto, cimentacion, pilotes" className="rounded-control border border-outline-variant bg-surface px-2 py-1.5 text-body-sm w-52" /></div>
+              <Button type="submit" leadingIcon={<Plus className="h-4 w-4" />}>Agregar</Button>
+            </form>
+          </div>
         </CardBody>
       </Card>
     </div>

@@ -20,6 +20,7 @@ import checklist from './routes/checklist.js';
 import aps from './routes/aps.js';
 import invitaciones from './routes/invitaciones.js';
 import agentes from './routes/agentes.js';
+import catalogo from './routes/catalogo.js';
 import { requireAuth } from './middleware/auth.js';
 import { notFound, errorHandler } from './middleware/error.js';
 
@@ -51,6 +52,7 @@ export function createApp() {
   app.use('/api', aps);
   app.use('/api', invitaciones);
   app.use('/api/agentes', agentes);
+  app.use('/api/catalogo', catalogo);
 
   // Manejo de errores (siempre al final)
   app.use(notFound);

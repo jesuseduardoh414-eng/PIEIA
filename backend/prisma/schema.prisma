@@ -81,6 +81,7 @@ model Disciplina {
   createdAt DateTime    @default(now()) @map("created_at")
   updatedAt DateTime    @updatedAt @map("updated_at")
   tipologias Tipologia[]
+  conceptos  ConceptoCatalogo[]
 
   @@map("disciplina")
 }
@@ -366,4 +367,38 @@ model Invitacion {
   invitadoPor   Usuario     @relation(fields: [invitadoPorId], references: [id])
 
   @@map("invitacion")
+}
+
+// ---------- MOD-G: Catalogo de conceptos y precios ----------
+
+model ConceptoCatalogo {
+  id           String   @id @default(uuid())
+  disciplinaId String   @map("disciplina_id")
+  clave        String
+  descripcion  String
+  unidad       String
+  alias        String[] @default([])
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  disciplina   Disciplina       @relation(fields: [disciplinaId], references: [id])
+  precios      PrecioUnitario[]
+
+  @@unique([disciplinaId, clave])
+  @@map("concepto_catalogo")
+}
+
+model PrecioUnitario {
+  id          String   @id @default(uuid())
+  conceptoId  String   @map("concepto_id")
+  region      String   @default("Noreste")
+  precio      Decimal  @db.Decimal(12, 2)
+  fuente      String?
+  vigenciaDesde DateTime @map("vigencia_desde")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  concepto    ConceptoCatalogo @relation(fields: [conceptoId], references: [id], onDelete: Cascade)
+
+  @@map("precio_unitario")
 }
