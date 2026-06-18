@@ -255,4 +255,26 @@ router.delete('/plantillas/:id', adminOnly, async (req, res, next) => {
   }
 });
 
+// ---- Feature flags de agentes (RF-H05) ----
+
+router.get('/agentes/flags', adminOnly, async (req, res, next) => {
+  try {
+    const flags = await prisma.agenteFlag.findMany({ orderBy: { agente: 'asc' } });
+    res.json(flags);
+  } catch (err) { next(err); }
+});
+
+router.patch('/agentes/flags/:agente', adminOnly, async (req, res, next) => {
+  try {
+    const { activo } = req.body;
+    if (typeof activo !== 'boolean') return res.status(400).json({ error: 'activo debe ser true o false' });
+    const flag = await prisma.agenteFlag.upsert({
+      where: { agente: req.params.agente },
+      update: { activo, actualizadoPorId: req.user.id },
+      create: { agente: req.params.agente, activo, actualizadoPorId: req.user.id },
+    });
+    res.json(flag);
+  } catch (err) { next(err); }
+});
+
 export default router;

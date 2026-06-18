@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   Users, LayoutGrid, ShieldCheck, ShieldOff, Plus, ToggleLeft, ToggleRight,
   Workflow, FolderOpen, CheckSquare, ClipboardList, ListChecks, ListTree,
-  Mail, Trash2, RefreshCw, Tag, DollarSign, ChevronDown, ChevronUp,
+  Mail, Trash2, RefreshCw, Tag, DollarSign, ChevronDown, ChevronUp, BrainCircuit, Zap, ZapOff,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -18,6 +18,7 @@ const TABS = [
   { key: 'checklist', label: 'Checklist', icon: ListChecks },
   { key: 'plantillas', label: 'Plantillas', icon: ListTree },
   { key: 'catalogo', label: 'Catalogo', icon: Workflow },
+  { key: 'agentes', label: 'Agentes IA', icon: BrainCircuit },
 ];
 
 export default function Admin() {
@@ -62,6 +63,7 @@ export default function Admin() {
       {tab === 'checklist' && <SeccionChecklist />}
       {tab === 'plantillas' && <SeccionPlantillas />}
       {tab === 'catalogo' && <SeccionCatalogo />}
+      {tab === 'agentes' && <SeccionAgentes />}
     </div>
   );
 }
@@ -1069,6 +1071,69 @@ function SeccionCatalogo() {
               <Button type="submit" leadingIcon={<Plus className="h-4 w-4" />}>Agregar</Button>
             </form>
           </div>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+
+// ─── Agentes IA — Feature flags ──────────────────────────────────────────────
+
+const AGENTE_INFO = {
+  'AG-01': { label: 'Cuantificacion desde Excel', desc: 'Parsea Excels de diseno y genera catalogo de conceptos con cantidades.' },
+  'AG-02': { label: 'Auditor de inputs del cliente', desc: 'Verifica DWGs, mecanica de suelos y topografia antes del inicio del proyecto.' },
+  'AG-03': { label: 'Redactor de memorias de calculo', desc: 'Genera borrador DOCX de memoria citando datos de diseno.' },
+  'AG-04': { label: 'RAG normativo y documentos', desc: 'Indexa PDFs y responde preguntas tecnicas con cita de fuente.' },
+  'AG-05': { label: 'Verificador de planos vs calculo', desc: 'Cruza DXF de planos contra JSON maestro de diseno y reporta discrepancias.' },
+};
+
+function SeccionAgentes() {
+  const qc = useQueryClient();
+  const { data: flags = [], isLoading } = useQuery({ queryKey: ['agente-flags'], queryFn: () => api.get('/api/admin/agentes/flags') });
+  const toggle = useMutation({
+    mutationFn: ({ agente, activo }) => api.patch(`/api/admin/agentes/flags/${agente}`, { activo }),
+    onSuccess: () => qc.invalidateQueries(['agente-flags']),
+  });
+  const flagMap = Object.fromEntries(flags.map(f => [f.agente, f]));
+  return (
+    <div className="space-y-4">
+      <Card>
+        <CardHeader><CardTitle icon={<BrainCircuit className="h-4 w-4" />}>Control de agentes IA (RF-H05)</CardTitle></CardHeader>
+        <CardBody className="space-y-3">
+          <p className="text-body-sm text-on-surface-variant">Activa o desactiva cada agente sin redespliegue. Un agente desactivado devuelve error 503.</p>
+          <div className="rounded-card border border-outline-variant bg-surface-variant/30 px-4 py-3 flex items-start gap-2">
+            <ShieldCheck className="h-4 w-4 text-success mt-0.5 shrink-0" />
+            <p className="text-body-sm text-on-surface-variant">
+              <strong className="text-on-surface">Candado RF-H06 activo en BD:</strong> trigger en PostgreSQL impide que cualquier output de agente se apruebe sin validacion humana registrada.
+            </p>
+          </div>
+          {isLoading ? <p className="text-body-sm text-on-surface-variant">Cargando...</p> : (
+            <div className="divide-y divide-outline-variant">
+              {Object.entries(AGENTE_INFO).map(([agente, info]) => {
+                const activo = flagMap[agente]?.activo ?? true;
+                return (
+                  <div key={agente} className="flex items-center gap-4 py-3">
+                    <div className={`flex h-8 w-8 items-center justify-center rounded-full ${activo ? 'bg-success/10' : 'bg-surface-variant'}`}>
+                      {activo ? <Zap className="h-4 w-4 text-success" /> : <ZapOff className="h-4 w-4 text-on-surface-variant" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-label font-semibold text-primary">{agente}</span>
+                        <span className="text-label text-on-surface">{info.label}</span>
+                      </div>
+                      <p className="text-body-sm text-on-surface-variant">{info.desc}</p>
+                    </div>
+                    <button onClick={() => toggle.mutate({ agente, activo: !activo })}
+                      className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-label font-medium transition-colors ${activo ? 'bg-success/10 text-success hover:bg-success/20' : 'bg-surface-variant text-on-surface-variant hover:bg-outline-variant'}`}>
+                      {activo ? <ToggleRight className="h-4 w-4" /> : <ToggleLeft className="h-4 w-4" />}
+                      {activo ? 'Activo' : 'Inactivo'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardBody>
       </Card>
     </div>

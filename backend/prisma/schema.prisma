@@ -141,6 +141,7 @@ model Usuario {
   invitacionesEnviadas  Invitacion[]
   cuantificaciones      Cuantificacion[]
   validaciones          EjecucionAgente[]
+  flagsActualizados     AgenteFlag[]
 
   @@map("usuario")
 }
@@ -372,6 +373,19 @@ model Invitacion {
   invitadoPor   Usuario     @relation(fields: [invitadoPorId], references: [id])
 
   @@map("invitacion")
+}
+
+// ---------- MOD-H: Feature flags de agentes IA ----------
+
+model AgenteFlag {
+  agente           String   @id
+  activo           Boolean  @default(true)
+  actualizadoPorId String?  @map("actualizado_por_id")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  actualizadoPor   Usuario? @relation(fields: [actualizadoPorId], references: [id])
+
+  @@map("agente_flag")
 }
 
 // ---------- MOD-H: Bitacora de ejecuciones IA (append-only) ----------

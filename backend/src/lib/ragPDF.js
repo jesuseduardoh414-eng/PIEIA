@@ -33,10 +33,11 @@ export async function indexarPDF(buffer, nombre, tipo = 'documento') {
 
   // Embeddings en lotes de 20 (limite Voyage AI)
   const embeddings = [];
-  for (let i = 0; i < chunks.length; i += 20) {
-    const lote = chunks.slice(i, i + 20);
+  for (let i = 0; i < chunks.length; i += 5) {
+    const lote = chunks.slice(i, i + 5);
     const embs = await embedTextos(lote);
     embeddings.push(...embs);
+    if (i + 5 < chunks.length) await new Promise(r => setTimeout(r, 21000)); // 21s entre lotes (3 RPM)
   }
 
   // Borrar indexacion previa del mismo archivo

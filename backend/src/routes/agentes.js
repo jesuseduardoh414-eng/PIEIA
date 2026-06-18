@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { generarCatalogoCuantificacion } from '../lib/cuantificacionIA.js';
 import { indexarPDF, consultarRAG, listarDocumentos } from '../lib/ragPDF.js';
 import { registrarEjecucion, completarEjecucion, fallarEjecucion } from '../lib/bitacora.js';
+import { verificarAgente } from '../lib/featureFlags.js';
 import { prisma } from '../lib/prisma.js';
 
 const router = Router();
@@ -29,39 +30,53 @@ const uploadPDF = multer({
 
 // AG-01: cuantificacion automatica desde Excel de diseno estructural
 router.post('/ag01/cuantificar', uploadExcel.single('excel'), async (req, res, next) => {
+  if (!await verificarAgente('AG-01', res)) return;
   const t0 = Date.now();
-  const ejecucion = await registrarEjecucion({ agente: 'AG-01', modelo: 'claude-sonnet-4-6', inputs: { archivo: req.file?.originalname } });
+  let ej = null;
+  try { ej = await registrarEjecucion({ agente: 'AG-01', modelo: 'claude-sonnet-4-6', inputs: { archivo: req.file?.originalname } }); } catch (_) {}
   try {
     if (!req.file) return res.status(400).json({ error: 'Sube un archivo Excel (.xlsx)' });
     const catalogo = await generarCatalogoCuantificacion(req.file.buffer);
-    await completarEjecucion(ejecucion.id, { outputs: catalogo, duracionMs: Date.now() - t0, estado: 'pendiente_validacion' });
-    res.json({ ...catalogo, ejecucionId: ejecucion.id });
+    if (ej) completarEjecucion(ej.id, { outputs: catalogo, duracionMs: Date.now() - t0, estado: 'pendiente_validacion' }).catch(() => {});
+    res.json({ ...catalogo, ejecucionId: ej?.id });
   } catch (err) {
-    await fallarEjecucion(ejecucion.id, err);
+    if (ej) fallarEjecucion(ej.id, err).catch(() => {});
     next(err);
   }
 });
 
 // AG-04: indexar PDF en el corpus RAG
 router.post('/ag04/indexar', uploadPDF.single('pdf'), async (req, res, next) => {
+  if (!await verificarAgente('AG-04', res)) return;
+  const t0 = Date.now();
+  let ej = null;
+  try { ej = await registrarEjecucion({ agente: 'AG-04', modelo: 'voyage-3', inputs: { archivo: req.file?.originalname, tipo: req.body.tipo } }); } catch (_) {}
   try {
     if (!req.file) return res.status(400).json({ error: 'Sube un archivo PDF' });
     const tipo = req.body.tipo || 'documento';
     const resultado = await indexarPDF(req.file.buffer, req.file.originalname, tipo);
+    if (ej) completarEjecucion(ej.id, { outputs: resultado, duracionMs: Date.now() - t0, estado: 'aceptada' }).catch(() => {});
     res.json(resultado);
   } catch (err) {
+    if (ej) fallarEjecucion(ej.id, err).catch(() => {});
     next(err);
   }
 });
 
 // AG-04: consultar el corpus RAG con una pregunta
 router.post('/ag04/consultar', async (req, res, next) => {
+  if (!await verificarAgente('AG-04', res)) return;
+  const t0 = Date.now();
+  let ej = null;
+  try { ej = await registrarEjecucion({ agente: 'AG-04', modelo: 'claude-sonnet-4-6 + voyage-3', inputs: { pregunta: req.body.pregunta } }); } catch (_) {}
   try {
     const { pregunta, tipo } = req.body;
     if (!pregunta?.trim()) return res.status(400).json({ error: 'Escribe una pregunta' });
     const resultado = await consultarRAG(pregunta.trim(), tipo || null);
+    if (ej) completarEjecucion(ej.id, { outputs: { respuesta: resultado.respuesta?.slice(0, 200), fuentes: resultado.fuentes }, duracionMs: Date.now() - t0, estado: 'pendiente_validacion' }).catch(() => {});
     res.json(resultado);
   } catch (err) {
+    if (ej) fallarEjecucion(ej.id, err).catch(() => {});
     next(err);
   }
 });

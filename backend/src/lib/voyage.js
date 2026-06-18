@@ -1,7 +1,9 @@
 const VOYAGE_URL = 'https://api.voyageai.com/v1/embeddings';
 const MODEL = 'voyage-3';
 
-export async function embedTextos(textos) {
+async function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+export async function embedTextos(textos, intento = 1) {
   const res = await fetch(VOYAGE_URL, {
     method: 'POST',
     headers: {
@@ -10,6 +12,12 @@ export async function embedTextos(textos) {
     },
     body: JSON.stringify({ model: MODEL, input: textos }),
   });
+  if (res.status === 429 && intento <= 4) {
+    const espera = intento * 22000; // 22s, 44s, 66s, 88s
+    console.log(`[Voyage] Rate limit, reintento ${intento} en ${espera / 1000}s...`);
+    await sleep(espera);
+    return embedTextos(textos, intento + 1);
+  }
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Voyage AI error ${res.status}: ${err}`);
