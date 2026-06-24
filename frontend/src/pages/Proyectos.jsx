@@ -398,6 +398,33 @@ function DetalleProyecto({ id, onBack }) {
     }
   };
 
+  // Export TOTAL del proyecto (RNF-06): todos los datos + historial completo de versiones.
+  const [exportLoading, setExportLoading] = useState(false);
+  const descargarExport = async () => {
+    setZipMsg(null);
+    setExportLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/proyectos/${id}/export`, { credentials: 'include' });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setZipMsg({ tipo: 'error', texto: body?.error || 'Error al generar el export' });
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${data.clave}_export_completo.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setZipMsg({ tipo: 'ok', texto: 'Export completo iniciado' });
+    } catch (err) {
+      setZipMsg({ tipo: 'error', texto: err.message });
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
   if (isLoading) return <p className="text-on-surface-variant">Cargando proyecto...</p>;
   if (!data) return null;
 
@@ -480,6 +507,17 @@ function DetalleProyecto({ id, onBack }) {
                   Descargar ZIP
                 </Button>
               )}
+
+              <Button
+                variant="text"
+                size="sm"
+                leadingIcon={<Download className="h-4 w-4" />}
+                loading={exportLoading}
+                onClick={descargarExport}
+                title="Export completo del proyecto: todos los datos + historial de versiones (anti lock-in)"
+              >
+                Export completo
+              </Button>
 
               <div className="grid grid-cols-3 rounded-card bg-surface-variant p-1">
                 <Button variant={vista === 'lista' ? 'filled' : 'text'} size="sm" leadingIcon={<List className="h-4 w-4" />} onClick={() => setVista('lista')}>

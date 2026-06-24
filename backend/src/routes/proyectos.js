@@ -207,6 +207,90 @@ router.get('/:proyectoId/zip', requireProjectRole(), async (req, res, next) => {
   }
 });
 
+// Export TOTAL del proyecto (RNF-06, anti lock-in): un ZIP con TODOS los datos del
+// proyecto en JSON + TODAS las versiones de TODOS los entregables (historial completo,
+// no solo aprobados). Permite al despacho llevarse un proyecto entero cuando quiera.
+// Restringido a coordinador/admin por ser un volcado completo (incluye la bitacora de IA).
+router.get('/:proyectoId/export', requireProjectRole('coordinador'), async (req, res, next) => {
+  try {
+    const { proyectoId } = req.params;
+    const proyecto = await prisma.proyecto.findUnique({
+      where: { id: proyectoId },
+      include: { tipologia: { include: { disciplina: true } } },
+    });
+    if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado' });
+
+    const componentes = await prisma.componente.findMany({ where: { proyectoId } });
+    const compIds = componentes.map((c) => c.id);
+    const tareas = await prisma.tarea.findMany({ where: { componenteId: { in: compIds } }, orderBy: { orden: 'asc' } });
+    const tareaIds = tareas.map((t) => t.id);
+    const dependencias = await prisma.dependencia.findMany({
+      where: { OR: [{ predecesoraId: { in: tareaIds } }, { sucesoraId: { in: tareaIds } }] },
+    });
+    const entregables = await prisma.entregable.findMany({ where: { tareaId: { in: tareaIds } } });
+    const entIds = entregables.map((e) => e.id);
+    const versiones = await prisma.versionEntregable.findMany({ where: { entregableId: { in: entIds } }, orderBy: { numero: 'asc' } });
+    const verIds = versiones.map((v) => v.id);
+    const revisiones = await prisma.revision.findMany({ where: { versionEntregableId: { in: verIds } } });
+    const revIds = revisiones.map((r) => r.id);
+    const observaciones = await prisma.observacion.findMany({ where: { revisionId: { in: revIds } } });
+    const miembros = await prisma.miembroProyecto.findMany({
+      where: { proyectoId }, include: { usuario: { select: { nombre: true, email: true } } },
+    });
+    const cambiosAlcance = await prisma.cambioAlcance.findMany({ where: { proyectoId } });
+    const cuantificaciones = await prisma.cuantificacion.findMany({ where: { proyectoId } });
+    const partidas = await prisma.partidaCuantificacion.findMany({ where: { cuantificacionId: { in: cuantificaciones.map((c) => c.id) } } });
+    const ejecucionesAgente = await prisma.ejecucionAgente.findMany({ where: { proyectoId } });
+
+    const bundle = {
+      exportadoEn: new Date().toISOString(),
+      exportadoPor: req.user.email,
+      aviso: 'Export completo del proyecto (anti lock-in, RNF-06). Incluye historial total de versiones y la bitacora de IA.',
+      proyecto, componentes, tareas, dependencias, miembros, entregables, versiones,
+      revisiones, observaciones, cambiosAlcance, cuantificaciones, partidasCuantificacion: partidas, ejecucionesAgente,
+    };
+
+    const tareaPorId = Object.fromEntries(tareas.map((t) => [t.id, t]));
+    const entPorId = Object.fromEntries(entregables.map((e) => [e.id, e]));
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${proyecto.clave}_export_completo.zip"`);
+    const zip = new ZipArchive({ zlib: { level: 6 } });
+    zip.on('error', (err) => next(err));
+    zip.pipe(res);
+
+    zip.append(JSON.stringify(bundle, null, 2), { name: 'datos-proyecto.json' });
+
+    // Todas las versiones de todos los entregables (historial completo).
+    const faltantes = [];
+    for (const v of versiones) {
+      const ent = entPorId[v.entregableId];
+      const tarea = ent ? tareaPorId[ent.tareaId] : null;
+      const carpeta = tarea ? `${String(tarea.orden).padStart(2, '0')}_${tarea.nombre}` : 'sin_tarea';
+      const sub = ent ? ent.nombre : 'entregable';
+      try {
+        const buf = await obtenerBuffer(v.storagePath);
+        zip.append(buf, { name: `entregables/${carpeta}/${sub}/v${v.numero}-${v.nombreArchivo}` });
+      } catch (_) {
+        faltantes.push(v.storagePath);
+      }
+    }
+
+    const leeme =
+      `Export completo de ${proyecto.clave} - ${proyecto.nombre}\n` +
+      `Generado: ${bundle.exportadoEn} por ${bundle.exportadoPor}\n\n` +
+      `datos-proyecto.json: todos los datos del proyecto (tareas, dependencias, revisiones,\n` +
+      `observaciones, cambios de alcance, cuantificaciones y bitacora de IA).\n` +
+      `entregables/: TODAS las versiones de cada entregable (historial completo).\n` +
+      (faltantes.length ? `\nArchivos no encontrados en storage (${faltantes.length}):\n` + faltantes.join('\n') + '\n' : '');
+    zip.append(leeme, { name: 'LEEME.txt' });
+
+    await zip.finalize();
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ---- Miembros del proyecto (TRD §3: roles por proyecto) ----
 
 router.get('/:proyectoId/miembros', requireProjectRole(), async (req, res, next) => {
