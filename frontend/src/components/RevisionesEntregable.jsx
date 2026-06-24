@@ -1,8 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, Check, ClipboardCheck, ListChecks, Sparkles } from 'lucide-react';
+import { ShieldCheck, Check, ClipboardCheck, ListChecks, Sparkles, MapPin, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
+import APSViewer from '@/components/APSViewer';
+
+// Tipos cuyo plano se puede marcar en el APS Viewer (RF-D01).
+const TIPOS_MARCABLES = new Set(['dwg_arquitectonico', 'dwg_topografia', 'dwg_planos']);
 
 const RES = {
   aprobado: { t: 'Aprobado', c: 'var(--pieia-color-success)' },
@@ -62,6 +66,8 @@ function FormRevision({ versionId, tipo, onDone }) {
   const [comentario, setComentario] = useState('');
   const [obsTexto, setObsTexto] = useState('');
   const [fallidos, setFallidos] = useState(new Set()); // IDs de items que NO pasaron
+  const [obsAncladas, setObsAncladas] = useState([]); // { texto, anclaje } (RF-D01)
+  const [marcando, setMarcando] = useState(false);
   const [error, setError] = useState(null);
 
   const { data: checklist } = useQuery({
@@ -70,8 +76,17 @@ function FormRevision({ versionId, tipo, onDone }) {
     enabled: !!tipo,
   });
 
+  // Estado de traduccion APS de la version, para saber si el plano es marcable (RF-D01).
+  const { data: aps } = useQuery({
+    queryKey: ['aps', versionId],
+    queryFn: () => api.get(`/api/versiones/${versionId}/aps`),
+    enabled: TIPOS_MARCABLES.has(tipo),
+  });
+  const planoMarcable = aps?.estado === 'listo' && !!aps?.urn;
+
   const tieneItemsFallidos = fallidos.size > 0;
-  const resultadoEfectivo = tieneItemsFallidos ? 'con_observaciones' : resultado;
+  const hayAncladas = obsAncladas.length > 0;
+  const resultadoEfectivo = (tieneItemsFallidos || hayAncladas) ? 'con_observaciones' : resultado;
 
   const toggleFallido = (id) =>
     setFallidos((prev) => {
@@ -82,14 +97,14 @@ function FormRevision({ versionId, tipo, onDone }) {
 
   const mut = useMutation({
     mutationFn: () => {
-      const obsChecklist = checklist?.filter((i) => fallidos.has(i.id)).map((i) => i.texto) ?? [];
+      const obsChecklist = checklist?.filter((i) => fallidos.has(i.id)).map((i) => ({ texto: i.texto })) ?? [];
       const obsManual = resultadoEfectivo === 'con_observaciones'
-        ? obsTexto.split('\n').map((s) => s.trim()).filter(Boolean)
+        ? obsTexto.split('\n').map((s) => s.trim()).filter(Boolean).map((texto) => ({ texto }))
         : [];
       return api.post(`/api/versiones/${versionId}/revisiones`, {
         resultado: resultadoEfectivo,
         comentario: comentario || undefined,
-        observaciones: [...obsChecklist, ...obsManual],
+        observaciones: [...obsChecklist, ...obsManual, ...obsAncladas],
       });
     },
     onSuccess: () => {
@@ -97,6 +112,7 @@ function FormRevision({ versionId, tipo, onDone }) {
       setObsTexto('');
       setResultado('aprobado');
       setFallidos(new Set());
+      setObsAncladas([]);
       onDone();
     },
     onError: (e) => setError(e.message),
@@ -163,6 +179,56 @@ function FormRevision({ versionId, tipo, onDone }) {
           className="w-full rounded-control border border-outline bg-surface px-3 py-2 text-body text-on-surface outline-none focus:border-primary"
         />
       )}
+
+      {/* Observaciones ancladas al plano (RF-D01 / CA-D02) */}
+      {TIPOS_MARCABLES.has(tipo) && (
+        <div className="rounded-card border border-outline/60 bg-surface px-4 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2 text-label font-semibold uppercase tracking-[0.08em] text-on-surface-variant">
+              <MapPin className="h-4 w-4 text-primary" /> Marcas sobre el plano
+            </span>
+            {planoMarcable ? (
+              <Button size="sm" variant="tonal" leadingIcon={<MapPin className="h-3.5 w-3.5" />} onClick={() => setMarcando(true)}>
+                Marcar sobre el plano
+              </Button>
+            ) : (
+              <span className="text-label text-on-surface-variant">
+                {aps?.estado === 'no_subido' ? 'Sube el plano al visor para poder marcarlo.' : 'Preparando el plano en el visor...'}
+              </span>
+            )}
+          </div>
+          {hayAncladas && (
+            <ul className="mt-3 grid gap-1.5">
+              {obsAncladas.map((o, i) => (
+                <li key={i} className="flex items-center gap-2 rounded-control bg-surface-variant/60 px-3 py-1.5 text-label text-on-surface">
+                  <MapPin className="h-3.5 w-3.5 shrink-0 text-primary" />
+                  <span className="min-w-0 flex-1 truncate">{o.texto}</span>
+                  <button
+                    onClick={() => setObsAncladas((prev) => prev.filter((_, j) => j !== i))}
+                    className="shrink-0 text-on-surface-variant hover:text-error"
+                    aria-label="Quitar marca"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {marcando && planoMarcable && (
+        <APSViewer
+          urn={aps.urn}
+          nombreArchivo="Marcar observacion sobre el plano"
+          modoMarcado
+          onGuardarMarca={({ svg, texto }) =>
+            setObsAncladas((prev) => [...prev, { texto, anclaje: { tipo: 'aps_markup', svg, urn: aps.urn } }])
+          }
+          onClose={() => setMarcando(false)}
+        />
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="md"
@@ -212,7 +278,10 @@ function ObservacionItem({ obs, versiones, onDone }) {
   const [abierto, setAbierto] = useState(false);
   const [justificacion, setJustificacion] = useState('');
   const [versionId, setVersionId] = useState('');
+  const [viendoMarca, setViendoMarca] = useState(false);
   const [error, setError] = useState(null);
+
+  const anclaje = obs.anclaje?.tipo === 'aps_markup' && obs.anclaje?.svg ? obs.anclaje : null;
 
   const mut = useMutation({
     mutationFn: () =>
@@ -237,12 +306,26 @@ function ObservacionItem({ obs, versiones, onDone }) {
           color={resuelta ? 'var(--pieia-color-success)' : 'var(--pieia-color-warning)'}
         />
         <span className="min-w-0 flex-1 text-on-surface">{obs.texto}</span>
+        {anclaje && (
+          <Button size="sm" variant="text" leadingIcon={<MapPin className="h-3.5 w-3.5 text-primary" />} onClick={() => setViendoMarca(true)}>
+            Ver marca
+          </Button>
+        )}
         {!resuelta && (
           <Button size="sm" variant="text" leadingIcon={<Check className="h-3.5 w-3.5" />} onClick={() => setAbierto((v) => !v)}>
             Resolver
           </Button>
         )}
       </div>
+
+      {viendoMarca && anclaje && (
+        <APSViewer
+          urn={anclaje.urn}
+          nombreArchivo="Observacion anclada al plano"
+          marcadoInicial={anclaje.svg}
+          onClose={() => setViendoMarca(false)}
+        />
+      )}
 
       {resuelta && obs.justificacion && (
         <p className="mt-2 text-label text-on-surface-variant">Justificacion: {obs.justificacion}</p>

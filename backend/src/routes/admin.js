@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
+import { previsualizarRecalibracion, ejecutarRecalibracion, MIN_MUESTRAS } from '../lib/calibracion.js';
+import { cacheDelete } from '../lib/cache.js';
+import { umbralesCosto } from '../lib/alertasCosto.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -97,6 +100,7 @@ router.post('/tipologias', adminOnly, async (req, res, next) => {
       data: { clave: clave.toUpperCase(), nombre, descripcion: descripcion || null, disciplinaId },
       include: { disciplina: { select: { nombre: true } }, _count: { select: { plantillas: true, proyectos: true } } },
     });
+    cacheDelete('tipologias:activas');
     res.status(201).json(tipologia);
   } catch (err) {
     next(err);
@@ -119,6 +123,7 @@ router.patch('/tipologias/:id', adminOnly, async (req, res, next) => {
       data,
       include: { disciplina: { select: { nombre: true } }, _count: { select: { plantillas: true, proyectos: true } } },
     });
+    cacheDelete('tipologias:activas');
     res.json(actualizada);
   } catch (err) {
     next(err);
@@ -294,7 +299,23 @@ router.get('/ia/costos', adminOnly, async (req, res, next) => {
 
     const totalUsd = porAgente.reduce((s, r) => s + Number(r.costo_total), 0);
 
-    res.json({ porAgente, porMes, porProyecto, totalUsd: Math.round(totalUsd * 10000) / 10000 });
+    // Umbrales de alerta (RF-H04) y qué proyectos/meses ya los superan.
+    const umbrales = umbralesCosto();
+    const mesActual = new Date().toISOString().slice(0, 7);
+    const totalMesActual = Number(porMes.find((m) => m.mes === mesActual)?.costo_total || 0);
+    const alertas = [];
+    if (umbrales.proyectoUsd) {
+      for (const p of porProyecto) {
+        if (Number(p.costo_total) >= umbrales.proyectoUsd) {
+          alertas.push({ tipo: 'proyecto', etiqueta: `${p.clave} — ${p.nombre}`, total: Number(p.costo_total), umbral: umbrales.proyectoUsd });
+        }
+      }
+    }
+    if (umbrales.mensualUsd && totalMesActual >= umbrales.mensualUsd) {
+      alertas.push({ tipo: 'mes', etiqueta: mesActual, total: totalMesActual, umbral: umbrales.mensualUsd });
+    }
+
+    res.json({ porAgente, porMes, porProyecto, totalUsd: Math.round(totalUsd * 10000) / 10000, umbrales, alertas });
   } catch (err) { next(err); }
 });
 
@@ -317,6 +338,27 @@ router.patch('/agentes/flags/:agente', adminOnly, async (req, res, next) => {
       create: { agente: req.params.agente, activo, actualizadoPorId: req.user.id },
     });
     res.json(flag);
+  } catch (err) { next(err); }
+});
+
+// ---- Calibración de horas estimadas (RF-A04) ----
+
+// Vista previa: qué cambiaría sin escribir nada.
+router.get('/horas/preview', adminOnly, async (req, res, next) => {
+  try {
+    const preview = await previsualizarRecalibracion(prisma);
+    const conDatos = preview.filter((r) => r.suficiente);
+    const sinDatos = preview.filter((r) => !r.suficiente);
+    const cambios = conDatos.filter((r) => r.cambia);
+    res.json({ minMuestras: MIN_MUESTRAS, total: preview.length, conDatos: conDatos.length, sinDatos: sinDatos.length, cambios: cambios.length, preview });
+  } catch (err) { next(err); }
+});
+
+// Ejecuta la recalibración y actualiza horasTeoricas en las plantillas.
+router.post('/horas/recalibrar', adminOnly, async (req, res, next) => {
+  try {
+    const resultado = await ejecutarRecalibracion(prisma);
+    res.json(resultado);
   } catch (err) { next(err); }
 });
 

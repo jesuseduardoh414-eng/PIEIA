@@ -389,6 +389,71 @@ model AgenteFlag {
   @@map("agente_flag")
 }
 
+// ---------- TRD 4.6: Cola durable de trabajos de agentes ----------
+// Equivalente Node-native de pgmq (el TRD asumia workers Python). Un worker
+// in-process reclama trabajos con FOR UPDATE SKIP LOCKED. Da reintentos,
+// timeout, prioridad y ejecucion no-bloqueante a todos los agentes.
+
+model TrabajoAgente {
+  id            String    @id @default(uuid())
+  tipo          String    // ag01_cuantificar | ag02_auditar | ag03_memoria | ag04_consultar | test
+  payload       Json      // metadatos del trabajo (nombre archivo, pregunta, ids, etc.)
+  archivo       Bytes?    // archivo de entrada (Excel/PDF) cuando aplica
+  prioridad     Int       @default(5) // menor = mas urgente
+  estado        String    @default("encolado") // encolado | procesando | completado | fallido
+  intentos      Int       @default(0)
+  maxIntentos   Int       @default(3) @map("max_intentos")
+  resultado     Json?
+  error         String?
+  ejecucionId   String?   @map("ejecucion_id") // link a ejecucion_agente
+  disponibleEn  DateTime  @default(now()) @map("disponible_en") // backoff de reintentos
+  iniciadoEn    DateTime? @map("iniciado_en")
+  completadoEn  DateTime? @map("completado_en")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([estado, disponibleEn, prioridad])
+  @@map("trabajo_agente")
+}
+
+// ---------- TRD §8: Resultados de evals contra datasets dorados (append-only) ----------
+
+model EvalResultado {
+  id            String   @id @default(uuid())
+  corridaId     String   @map("corrida_id")   // agrupa una ejecución batch
+  casoId        String   @map("caso_id")
+  agente        String
+  versionPrompt String?  @map("version_prompt")
+  aprobado      Boolean
+  score         Float?
+  metricas      Json     // { concretoPct: 3.2, aceroPct: 4.1, mapeoPct: 92, ... }
+  detalle       Json?    // diferencias campo a campo, errores, etc.
+  error         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([agente, createdAt])
+  @@index([corridaId])
+  @@map("eval_resultado")
+}
+
+// ---------- TRD 4.6: Prompts versionados (semver) ----------
+
+model PlantillaPrompt {
+  id        String   @id @default(uuid())
+  agente    String   // AG-01 .. AG-05
+  clave     String   // identifica el prompt dentro del agente (ej: system, mecanica, topografia)
+  version   String   // semver (ej: 1.0.0)
+  contenido String
+  changelog String?
+  activa    Boolean  @default(false)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([agente, clave, version])
+  @@index([agente, clave, activa])
+  @@map("plantilla_prompt")
+}
+
 // ---------- MOD-H: Bitacora de ejecuciones IA (append-only) ----------
 
 model EjecucionAgente {
@@ -483,4 +548,20 @@ model PrecioUnitario {
   concepto    ConceptoCatalogo @relation(fields: [conceptoId], references: [id], onDelete: Cascade)
 
   @@map("precio_unitario")
+}
+
+// RF-A05: Matriz de normativa aplicable por jurisdicción y municipio.
+model MatrizNormativa {
+  id           String   @id @default(uuid())
+  jurisdiccion String   // 'municipal' | 'estatal' | 'federal'
+  nombre       String   // "Reglamento de Construcción de Monterrey 2023"
+  clave        String?  // "RCM-2023"
+  aplicaEn    String[] @default([]) @map("aplica_en") // municipios normalizados; vacío = aplica a todos (estatal/federal)
+  descripcion  String?
+  urlReferencia String? @map("url_referencia")
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("matriz_normativa")
 }

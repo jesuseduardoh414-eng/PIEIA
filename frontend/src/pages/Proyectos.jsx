@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
@@ -7,6 +7,9 @@ import {
   FolderOpen,
   List,
   LayoutGrid,
+  GanttChart,
+  BookOpen,
+  Brain,
   Clock,
   Paperclip,
   Users,
@@ -197,6 +200,35 @@ function FormCrear({ onCreated }) {
   const [error, setError] = useState(null);
   const onChange = (e) => setForm((f) => ({ ...f, [e.target.name]: e.target.value }));
 
+  const [municipioDebounced, setMunicipioDebounced] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setMunicipioDebounced(form.municipio.trim()), 600);
+    return () => clearTimeout(t);
+  }, [form.municipio]);
+
+  const { data: normativas } = useQuery({
+    queryKey: ['normativa', municipioDebounced],
+    queryFn: () => api.get(`/api/normativa?municipio=${encodeURIComponent(municipioDebounced)}`),
+    enabled: municipioDebounced.length >= 3,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  // MOD-I: proyectos similares (se activa cuando nombre + tipología tienen valor)
+  const [consultaDebounced, setConsultaDebounced] = useState('');
+  useEffect(() => {
+    const consulta = [form.nombre, form.tipologiaId ? tipologias?.find(t => t.id === form.tipologiaId)?.nombre : '', form.municipio].filter(Boolean).join(' ');
+    const t = setTimeout(() => setConsultaDebounced(consulta), 800);
+    return () => clearTimeout(t);
+  }, [form.nombre, form.tipologiaId, form.municipio, tipologias]);
+
+  const tipologiaSel = tipologias?.find(t => t.id === form.tipologiaId);
+  const { data: similares } = useQuery({
+    queryKey: ['memoria-similares', consultaDebounced, tipologiaSel?.clave],
+    queryFn: () => api.get(`/api/memoria/similares?consulta=${encodeURIComponent(consultaDebounced)}&tipologia=${encodeURIComponent(tipologiaSel?.clave ?? '')}`),
+    enabled: consultaDebounced.length >= 5,
+    staleTime: 5 * 60 * 1000,
+  });
+
   const mut = useMutation({
     mutationFn: () => api.post('/api/proyectos', form),
     onSuccess: (p) => {
@@ -240,6 +272,55 @@ function FormCrear({ onCreated }) {
           </Select>
           <Input label="Estado" name="estado" value={form.estado} onChange={onChange} required placeholder="Nuevo Leon" />
           <Input label="Municipio" name="municipio" value={form.municipio} onChange={onChange} required placeholder="Monterrey" />
+
+          {normativas?.length > 0 && (
+            <details className="md:col-span-2 rounded-card border border-outline/50 bg-surface-variant/30">
+              <summary className="cursor-pointer px-4 py-2.5 text-label text-on-surface-variant select-none flex items-center gap-1.5">
+                <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                Normativa de referencia para {municipioDebounced} ({normativas.length} reglamentos) — solo informativo
+              </summary>
+              <ul className="border-t border-outline/30 px-4 py-3 grid gap-1.5">
+                {normativas.map((n) => (
+                  <li key={n.id} className="flex flex-wrap items-center gap-2 text-label text-on-surface-variant">
+                    <span className={`shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium ${
+                      n.jurisdiccion === 'federal' ? 'bg-surface-variant text-on-surface-variant' :
+                      n.jurisdiccion === 'estatal' ? 'bg-secondary/15 text-secondary' :
+                      'bg-primary/10 text-primary'
+                    }`}>{n.jurisdiccion}</span>
+                    <span>{n.nombre}</span>
+                    {n.clave && <span className="font-mono text-xs">({n.clave})</span>}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
+          {similares?.resultados?.length > 0 && (
+            <details className="md:col-span-2 rounded-card border border-outline/50 bg-surface-variant/30">
+              <summary className="cursor-pointer px-4 py-2.5 text-label text-on-surface-variant select-none flex items-center gap-1.5">
+                <Brain className="h-3.5 w-3.5 shrink-0 text-primary" />
+                {similares.resultados.length} proyecto{similares.resultados.length > 1 ? 's' : ''} similar{similares.resultados.length > 1 ? 'es' : ''} en la memoria — referencia
+              </summary>
+              <ul className="border-t border-outline/30 px-4 py-3 grid gap-2">
+                {similares.resultados.map((s) => (
+                  <li key={s.id} className="rounded-control bg-surface px-3 py-2.5 text-label">
+                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                      <span className="font-semibold text-on-surface">{s.slug}</span>
+                      {s.tipologia && <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs text-primary">{s.tipologia}</span>}
+                      {s.municipio && <span className="text-on-surface-variant text-xs">{s.municipio}</span>}
+                      <span className="ml-auto text-xs text-on-surface-variant">{s.similitudPct}% similar</span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-on-surface-variant">
+                      {s.metadatos?.tipoCimentacion && <span>Cimentación: <strong className="text-on-surface">{s.metadatos.tipoCimentacion}</strong></span>}
+                      {s.metadatos?.sistemaEstructural && <span>Sistema: <strong className="text-on-surface">{s.metadatos.sistemaEstructural}</strong></span>}
+                      {s.metadatos?.problemas?.length > 0 && <span>Problemas previos: <strong className="text-on-surface">{s.metadatos.problemas.join(', ')}</strong></span>}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+
           {error && <p className="text-label text-error md:col-span-2">{error}</p>}
           <div className="flex justify-end md:col-span-2">
             <Button type="submit" variant="filled" loading={mut.isPending}>
@@ -400,12 +481,15 @@ function DetalleProyecto({ id, onBack }) {
                 </Button>
               )}
 
-              <div className="grid grid-cols-2 rounded-card bg-surface-variant p-1">
+              <div className="grid grid-cols-3 rounded-card bg-surface-variant p-1">
                 <Button variant={vista === 'lista' ? 'filled' : 'text'} size="sm" leadingIcon={<List className="h-4 w-4" />} onClick={() => setVista('lista')}>
                   Lista
                 </Button>
                 <Button variant={vista === 'tablero' ? 'filled' : 'text'} size="sm" leadingIcon={<LayoutGrid className="h-4 w-4" />} onClick={() => setVista('tablero')}>
                   Tablero
+                </Button>
+                <Button variant={vista === 'timeline' ? 'filled' : 'text'} size="sm" leadingIcon={<GanttChart className="h-4 w-4" />} onClick={() => setVista('timeline')}>
+                  Timeline
                 </Button>
               </div>
             </div>
@@ -440,40 +524,44 @@ function DetalleProyecto({ id, onBack }) {
 
       <PanelCuantificacion proyectoId={id} miRol={data.miRol} />
 
-      {data.componentes?.map((c) => (
-        <section key={c.id} className="grid gap-3">
-          <div>
-            <h3 className="text-title font-semibold text-on-surface">Checklist - {c.nombre}</h3>
-            <p className="text-body text-on-surface-variant">{c.tareas.length} tareas operativas en este componente.</p>
-          </div>
+      {vista === 'timeline' ? (
+        <GanttTimeline componentes={data.componentes ?? []} proyecto={data} />
+      ) : (
+        data.componentes?.map((c) => (
+          <section key={c.id} className="grid gap-3">
+            <div>
+              <h3 className="text-title font-semibold text-on-surface">Checklist - {c.nombre}</h3>
+              <p className="text-body text-on-surface-variant">{c.tareas.length} tareas operativas en este componente.</p>
+            </div>
 
-          {vista === 'lista' ? (
-            <ol className="grid gap-3">
-              {c.tareas.map((t) => (
-                <TareaRow
-                  key={t.id}
-                  tarea={t}
-                  onMover={mover}
-                  pending={esPending(t.id)}
-                  miembros={miembros}
-                  onAsignar={asignar}
-                  puedeGestionarHito={puedeGestionarHito}
-                  onToggleHito={(tareaId) => mutHito.mutate(tareaId)}
-                />
-              ))}
-            </ol>
-          ) : (
-            <TableroKanban tareas={c.tareas} onMover={mover} esPending={esPending} />
-          )}
+            {vista === 'lista' ? (
+              <ol className="grid gap-3">
+                {c.tareas.map((t) => (
+                  <TareaRow
+                    key={t.id}
+                    tarea={t}
+                    onMover={mover}
+                    pending={esPending(t.id)}
+                    miembros={miembros}
+                    onAsignar={asignar}
+                    puedeGestionarHito={puedeGestionarHito}
+                    onToggleHito={(tareaId) => mutHito.mutate(tareaId)}
+                  />
+                ))}
+              </ol>
+            ) : (
+              <TableroKanban tareas={c.tareas} onMover={mover} esPending={esPending} />
+            )}
 
-          {puedeGestionarHito && (
-            <FormNuevaTarea
-              componenteId={c.id}
-              onCreated={() => qc.invalidateQueries({ queryKey: ['proyecto', id] })}
-            />
-          )}
-        </section>
-      ))}
+            {puedeGestionarHito && (
+              <FormNuevaTarea
+                componenteId={c.id}
+                onCreated={() => qc.invalidateQueries({ queryKey: ['proyecto', id] })}
+              />
+            )}
+          </section>
+        ))
+      )}
     </div>
   );
 }
@@ -774,6 +862,182 @@ function FormNuevaTarea({ componenteId, onCreated }) {
       </div>
       {error && <p className="mt-3 text-label text-error">{error}</p>}
     </div>
+  );
+}
+
+function GanttTimeline({ componentes, proyecto }) {
+  const MS_DAY = 86400000;
+  const tStart = proyecto.fechaInicio
+    ? new Date(proyecto.fechaInicio)
+    : new Date(proyecto.createdAt);
+  const tEnd = proyecto.fechaCompromiso
+    ? new Date(proyecto.fechaCompromiso)
+    : new Date(tStart.getTime() + 90 * MS_DAY);
+  const totalMs = Math.max(tEnd - tStart, 14 * MS_DAY);
+  const toPct = (d) => ((new Date(d) - tStart) / totalMs) * 100;
+
+  // Month tick marks
+  const months = [];
+  const tickCur = new Date(tStart);
+  tickCur.setDate(1);
+  for (let i = 0; i < 24; i++) {
+    const p = toPct(tickCur);
+    if (p > 105) break;
+    if (p >= -2) months.push({ label: tickCur.toLocaleDateString('es-MX', { month: 'short', year: '2-digit' }), pct: p });
+    tickCur.setMonth(tickCur.getMonth() + 1);
+  }
+
+  // Compute sequential schedule per component
+  const rows = componentes.map((comp) => {
+    let cursor = new Date(tStart);
+    const tareas = comp.tareas.map((t) => {
+      const durDays = Math.max(1, Math.ceil((t.horasEstimadas ?? 8) / 8));
+      const barStart = new Date(cursor);
+      cursor = new Date(cursor.getTime() + durDays * MS_DAY);
+      const barEnd = t.fechaLimite ? new Date(t.fechaLimite) : new Date(cursor);
+      const startPct = Math.max(0, toPct(barStart));
+      const endPct = Math.min(100, toPct(barEnd));
+      const dlPct = t.fechaLimite != null ? toPct(new Date(t.fechaLimite)) : null;
+      return {
+        ...t,
+        startPct,
+        width: Math.max(0.5, endPct - startPct),
+        dlPct,
+        dlLabel: t.fechaLimite
+          ? new Date(t.fechaLimite).toLocaleDateString('es-MX', { day: 'numeric', month: 'short' })
+          : null,
+      };
+    });
+    return { ...comp, tareas };
+  });
+
+  const todayPct = toPct(new Date());
+
+  return (
+    <section className="rounded-card border border-outline/60 bg-surface px-4 py-4 shadow-1">
+      <div className="mb-4">
+        <div className="pieia-divider-label">
+          <GanttChart className="h-3.5 w-3.5 text-primary" />
+          Linea de tiempo del proyecto
+        </div>
+        {!proyecto.fechaInicio && (
+          <p className="mt-1 text-label text-on-surface-variant">
+            Sin fecha de inicio definida — posiciones estimadas por orden y horas.
+          </p>
+        )}
+      </div>
+
+      <div className="overflow-x-auto rounded-card">
+        <div style={{ minWidth: '720px' }}>
+          {/* X-axis header */}
+          <div className="flex h-8 items-end border-b border-outline/40">
+            <div style={{ width: '224px', flexShrink: 0 }} />
+            <div className="relative flex-1 text-label text-on-surface-variant select-none">
+              {months.map((m, i) => (
+                <span
+                  key={i}
+                  className="absolute bottom-1"
+                  style={{ left: `${m.pct}%`, transform: 'translateX(-50%)' }}
+                >
+                  {m.label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Component + task rows */}
+          {rows.map((comp) => (
+            <div key={comp.id}>
+              <div className="flex items-center border-b border-outline/20 bg-surface-variant/30 py-1.5">
+                <div style={{ width: '224px', flexShrink: 0 }} className="px-3 text-label font-semibold text-on-surface truncate">
+                  {comp.nombre}
+                </div>
+                <div className="relative flex-1 h-4">
+                  {months.map((m, i) => (
+                    <div key={i} className="absolute inset-y-0 w-px bg-outline/20" style={{ left: `${m.pct}%` }} />
+                  ))}
+                </div>
+              </div>
+
+              {comp.tareas.map((t) => (
+                <div key={t.id} className="flex items-center border-b border-outline/10 py-1">
+                  <div style={{ width: '224px', flexShrink: 0 }} className="px-3 flex items-center gap-1.5 min-w-0">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ background: ESTADO_META[t.estado]?.dot ?? '#888' }} />
+                    <span className="text-label text-on-surface truncate">{t.orden}. {t.nombre}</span>
+                  </div>
+                  <div className="relative flex-1 h-7">
+                    {months.map((m, i) => (
+                      <div key={i} className="absolute inset-y-0 w-px bg-outline/15" style={{ left: `${m.pct}%` }} />
+                    ))}
+                    {todayPct >= 0 && todayPct <= 100 && (
+                      <div className="absolute inset-y-0 w-px bg-primary/40" style={{ left: `${todayPct}%` }} />
+                    )}
+                    <div
+                      className="absolute top-1 h-5 rounded"
+                      style={{
+                        left: `${t.startPct}%`,
+                        width: `${t.width}%`,
+                        background: ESTADO_META[t.estado]?.dot ?? '#888',
+                        opacity: t.estado === 'invalidada' ? 0.3 : 0.72,
+                      }}
+                      title={`${t.nombre} · ${ESTADO_META[t.estado]?.label ?? t.estado}${t.horasEstimadas ? ` · ${t.horasEstimadas}h` : ''}${t.dlLabel ? `\nFecha límite: ${t.dlLabel}` : ''}`}
+                    />
+                    {t.dlPct != null && (
+                      <div
+                        className="absolute inset-y-0 w-0.5 bg-error"
+                        style={{ left: `${t.dlPct}%` }}
+                        title={`Fecha límite: ${t.dlLabel}`}
+                      />
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+
+          {/* Bottom labels: Hoy + Entrega */}
+          <div className="flex h-6 items-start border-t border-outline/20 text-label select-none">
+            <div style={{ width: '224px', flexShrink: 0 }} />
+            <div className="relative flex-1">
+              {todayPct >= 0 && todayPct <= 100 && (
+                <span
+                  className="absolute top-1 font-medium text-primary"
+                  style={{ left: `${todayPct}%`, transform: 'translateX(-50%)' }}
+                >
+                  Hoy
+                </span>
+              )}
+              {proyecto.fechaCompromiso && (
+                <span
+                  className="absolute top-1 font-medium text-error"
+                  style={{ left: '100%', transform: 'translateX(-100%)' }}
+                >
+                  Entrega
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Legend */}
+      <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1.5 border-t border-outline/30 pt-3 text-label text-on-surface-variant">
+        {Object.entries(ESTADO_META).map(([k, v]) => (
+          <span key={k} className="flex items-center gap-1.5">
+            <span className="inline-block h-3 w-5 rounded-sm" style={{ background: v.dot, opacity: 0.72 }} />
+            {v.label}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5 ml-1">
+          <span className="inline-block h-3 w-0.5 bg-error" />
+          Fecha límite
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="inline-block h-3 w-0.5 bg-primary/40" />
+          Hoy
+        </span>
+      </div>
+    </section>
   );
 }
 

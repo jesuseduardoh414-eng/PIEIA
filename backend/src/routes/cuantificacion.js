@@ -234,4 +234,73 @@ router.get('/cuantificaciones/:id/export', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// RF-G05: comparador de cuantificaciones entre versiones del proyecto.
+// Sinergia con MOD-F: "el cambio del cliente cuesta +42 m³ de concreto".
+router.get('/cuantificaciones/:idA/comparar/:idB', async (req, res, next) => {
+  try {
+    const [a, b] = await Promise.all([
+      prisma.cuantificacion.findUnique({ where: { id: req.params.idA } }),
+      prisma.cuantificacion.findUnique({ where: { id: req.params.idB } }),
+    ]);
+    if (!a || !b) return res.status(404).json({ error: 'Cuantificación no encontrada' });
+    if (a.proyectoId !== b.proyectoId) return res.status(400).json({ error: 'Las cuantificaciones son de proyectos distintos' });
+
+    const rol = await rolEnProyecto(req.user, a.proyectoId);
+    if (!rol) return res.status(403).json({ error: 'Sin acceso' });
+
+    const [pa, pb] = await Promise.all([
+      prisma.partidaCuantificacion.findMany({ where: { cuantificacionId: a.id }, include: { concepto: { select: { clave: true } } } }),
+      prisma.partidaCuantificacion.findMany({ where: { cuantificacionId: b.id }, include: { concepto: { select: { clave: true } } } }),
+    ]);
+
+    // Clave de emparejamiento: conceptoId si existe, si no descripción+unidad normalizada.
+    const claveDe = (p) => p.conceptoId || `${p.descripcion.trim().toLowerCase()}|${(p.unidad || '').trim().toLowerCase()}`;
+    const importeDe = (p) => (Number(p.cantidad) || 0) * (Number(p.precioUnitario) || 0);
+
+    const mapa = new Map();
+    const meter = (p, lado) => {
+      const k = claveDe(p);
+      if (!mapa.has(k)) {
+        mapa.set(k, { clave: p.concepto?.clave || null, descripcion: p.descripcion, unidad: p.unidad, cantidadA: 0, cantidadB: 0, importeA: 0, importeB: 0 });
+      }
+      const fila = mapa.get(k);
+      fila[`cantidad${lado}`] += Number(p.cantidad) || 0;
+      fila[`importe${lado}`] += importeDe(p);
+    };
+    pa.forEach((p) => meter(p, 'A'));
+    pb.forEach((p) => meter(p, 'B'));
+
+    const filas = [...mapa.values()].map((f) => {
+      const deltaCantidad = +(f.cantidadB - f.cantidadA).toFixed(4);
+      const deltaImporte = +(f.importeB - f.importeA).toFixed(2);
+      let estado = 'sin_cambio';
+      if (f.cantidadA === 0 && f.cantidadB > 0) estado = 'agregada';
+      else if (f.cantidadB === 0 && f.cantidadA > 0) estado = 'eliminada';
+      else if (deltaCantidad !== 0) estado = 'modificada';
+      return {
+        clave: f.clave, descripcion: f.descripcion, unidad: f.unidad,
+        cantidadA: +f.cantidadA.toFixed(4), cantidadB: +f.cantidadB.toFixed(4), deltaCantidad,
+        importeA: +f.importeA.toFixed(2), importeB: +f.importeB.toFixed(2), deltaImporte, estado,
+      };
+    }).sort((x, y) => Math.abs(y.deltaImporte) - Math.abs(x.deltaImporte));
+
+    const totales = filas.reduce((t, f) => {
+      t.importeA += f.importeA; t.importeB += f.importeB;
+      if (f.estado === 'agregada') t.agregadas++;
+      else if (f.estado === 'eliminada') t.eliminadas++;
+      else if (f.estado === 'modificada') t.modificadas++;
+      return t;
+    }, { importeA: 0, importeB: 0, agregadas: 0, eliminadas: 0, modificadas: 0 });
+    totales.importeA = +totales.importeA.toFixed(2);
+    totales.importeB = +totales.importeB.toFixed(2);
+    totales.deltaImporte = +(totales.importeB - totales.importeA).toFixed(2);
+
+    res.json({
+      a: { id: a.id, nombre: a.nombre },
+      b: { id: b.id, nombre: b.nombre },
+      filas, totales,
+    });
+  } catch (err) { next(err); }
+});
+
 export default router;

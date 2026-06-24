@@ -4,6 +4,7 @@ import {
   Users, LayoutGrid, ShieldCheck, ShieldOff, Plus, ToggleLeft, ToggleRight,
   Workflow, FolderOpen, CheckSquare, ClipboardList, ListChecks, ListTree,
   Mail, Trash2, RefreshCw, Tag, DollarSign, ChevronDown, ChevronUp, BrainCircuit, Zap, ZapOff,
+  Clock, TrendingUp, AlertCircle, CheckCircle2, BookOpen, Globe, Building2, Brain, Database, FileText, GitBranch, FlaskConical, Play,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
@@ -20,6 +21,11 @@ const TABS = [
   { key: 'catalogo', label: 'Catalogo', icon: Workflow },
   { key: 'agentes', label: 'Agentes IA', icon: BrainCircuit },
   { key: 'costos', label: 'Costos IA', icon: DollarSign },
+  { key: 'calibracion', label: 'Calibración', icon: TrendingUp },
+  { key: 'normativa', label: 'Normativa', icon: BookOpen },
+  { key: 'memoria', label: 'Memoria Org.', icon: Brain },
+  { key: 'prompts', label: 'Prompts IA', icon: GitBranch },
+  { key: 'evals', label: 'Evals', icon: FlaskConical },
 ];
 
 export default function Admin() {
@@ -66,6 +72,11 @@ export default function Admin() {
       {tab === 'catalogo' && <SeccionCatalogo />}
       {tab === 'agentes' && <SeccionAgentes />}
       {tab === 'costos' && <SeccionCostosIA />}
+      {tab === 'calibracion' && <SeccionCalibracion />}
+      {tab === 'normativa' && <SeccionNormativa />}
+      {tab === 'memoria' && <SeccionMemoriaOrg />}
+      {tab === 'prompts' && <SeccionPrompts />}
+      {tab === 'evals' && <SeccionEvals />}
     </div>
   );
 }
@@ -1169,6 +1180,32 @@ function SeccionCostosIA() {
                 <DollarSign className="h-8 w-8 text-primary/30" />
               </div>
 
+              {/* Alertas de umbral activas (RF-H04) */}
+              {data.alertas?.length > 0 && (
+                <div className="rounded-card bg-error/5 border border-error/30 px-5 py-4 space-y-2">
+                  <p className="text-label font-semibold text-error flex items-center gap-2">
+                    <AlertCircle className="h-4 w-4" /> Umbral de costo superado
+                  </p>
+                  <ul className="space-y-1">
+                    {data.alertas.map((a, i) => (
+                      <li key={i} className="text-body-sm text-on-surface flex items-center justify-between gap-4">
+                        <span>{a.tipo === 'mes' ? `Mes ${a.etiqueta}` : a.etiqueta}</span>
+                        <span className="font-medium text-error">{fmtUsd(a.total)} <span className="text-on-surface-variant font-normal">/ umbral {fmtUsd(a.umbral)}</span></span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Umbrales configurados */}
+              <p className="text-label text-on-surface-variant">
+                Umbrales de alerta:{' '}
+                {data.umbrales?.proyectoUsd ? `por proyecto ${fmtUsd(data.umbrales.proyectoUsd)}` : 'por proyecto sin definir'}
+                {' · '}
+                {data.umbrales?.mensualUsd ? `mensual ${fmtUsd(data.umbrales.mensualUsd)}` : 'mensual sin definir'}
+                {!data.umbrales?.proyectoUsd && !data.umbrales?.mensualUsd && ' (configura ALERTA_COSTO_PROYECTO_USD / ALERTA_COSTO_MENSUAL_USD en el backend)'}
+              </p>
+
               {/* Por agente */}
               <div>
                 <p className="text-label font-semibold text-on-surface mb-2">Por agente</p>
@@ -1246,6 +1283,675 @@ function SeccionCostosIA() {
               </p>
             </>
           )}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Calibración de horas estimadas (RF-A04) ─────────────────────────────────
+
+function SeccionCalibracion() {
+  const qc = useQueryClient();
+  const [ejecutado, setEjecutado] = useState(null);
+
+  const { data: preview, isLoading, refetch } = useQuery({
+    queryKey: ['admin-horas-preview'],
+    queryFn: () => api.get('/api/admin/horas/preview'),
+  });
+
+  const recalibrar = useMutation({
+    mutationFn: () => api.post('/api/admin/horas/recalibrar', {}),
+    onSuccess: (d) => {
+      setEjecutado(d);
+      refetch();
+      qc.invalidateQueries({ queryKey: ['admin-stats'] });
+    },
+  });
+
+  const conDatos = preview?.preview?.filter((r) => r.suficiente) ?? [];
+  const sinDatos = preview?.preview?.filter((r) => !r.suficiente) ?? [];
+
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle>Calibración automática de horas</CardTitle>
+              <p className="mt-1 text-label text-on-surface-variant">
+                Recalcula las horas teóricas de las plantillas usando el promedio de horas reales registradas.
+                Requiere mínimo {preview?.minMuestras ?? 3} muestras por tarea.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody className="pt-0">
+          {isLoading && <p className="text-label text-on-surface-variant">Analizando historial...</p>}
+
+          {preview && (
+            <>
+              <div className="grid gap-3 sm:grid-cols-3 mb-5">
+                <div className="rounded-card border border-outline/60 bg-surface px-4 py-3">
+                  <p className="text-label uppercase tracking-[0.08em] text-on-surface-variant">Con datos suficientes</p>
+                  <p className="mt-1 text-title font-semibold text-primary">{preview.conDatos}</p>
+                </div>
+                <div className="rounded-card border border-outline/60 bg-surface px-4 py-3">
+                  <p className="text-label uppercase tracking-[0.08em] text-on-surface-variant">Cambiarían sus horas</p>
+                  <p className="mt-1 text-title font-semibold text-warning">{preview.cambios}</p>
+                </div>
+                <div className="rounded-card border border-outline/60 bg-surface px-4 py-3">
+                  <p className="text-label uppercase tracking-[0.08em] text-on-surface-variant">Sin datos (≥{preview.minMuestras})</p>
+                  <p className="mt-1 text-title font-semibold text-on-surface-variant">{preview.sinDatos}</p>
+                </div>
+              </div>
+
+              {ejecutado && (
+                <div className="mb-4 rounded-card border border-outline/40 bg-surface-variant/30 px-4 py-3 text-label text-success flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  Recalibración completada — {ejecutado.actualizadas} plantilla(s) actualizadas.
+                </div>
+              )}
+
+              <div className="mb-5 flex flex-wrap items-center gap-3">
+                <Button
+                  variant="filled"
+                  leadingIcon={<RefreshCw className="h-4 w-4" />}
+                  loading={recalibrar.isPending}
+                  disabled={preview.cambios === 0}
+                  onClick={() => recalibrar.mutate()}
+                >
+                  {preview.cambios === 0 ? 'No hay cambios pendientes' : `Recalibrar ${preview.cambios} plantilla(s)`}
+                </Button>
+                {recalibrar.isError && (
+                  <span className="text-label text-error">{recalibrar.error?.message}</span>
+                )}
+              </div>
+
+              {conDatos.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-2 text-label font-semibold text-on-surface">Plantillas con historial suficiente</p>
+                  <div className="overflow-x-auto rounded-card border border-outline/60">
+                    <table className="w-full text-label">
+                      <thead>
+                        <tr className="border-b border-outline/40 bg-surface-variant/40">
+                          <th className="px-3 py-2 text-left font-semibold text-on-surface-variant">Tipología</th>
+                          <th className="px-3 py-2 text-left font-semibold text-on-surface-variant">Tarea</th>
+                          <th className="px-3 py-2 text-right font-semibold text-on-surface-variant">Actual</th>
+                          <th className="px-3 py-2 text-right font-semibold text-on-surface-variant">Nueva</th>
+                          <th className="px-3 py-2 text-right font-semibold text-on-surface-variant">Muestras</th>
+                          <th className="px-3 py-2 text-center font-semibold text-on-surface-variant">Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {conDatos.map((r) => (
+                          <tr key={r.plantillaId} className="border-b border-outline/20 hover:bg-surface-variant/20">
+                            <td className="px-3 py-2 text-on-surface-variant">{r.tipologiaClave}</td>
+                            <td className="px-3 py-2 text-on-surface">{r.nombre}</td>
+                            <td className="px-3 py-2 text-right text-on-surface-variant">
+                              {r.horasActuales != null ? `${r.horasActuales}h` : '—'}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold text-on-surface">{r.horasNuevas}h</td>
+                            <td className="px-3 py-2 text-right text-on-surface-variant">{r.muestras}</td>
+                            <td className="px-3 py-2 text-center">
+                              {r.cambia ? (
+                                <span className="inline-flex items-center gap-1 text-warning">
+                                  <AlertCircle className="h-3.5 w-3.5" /> Cambia
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-success">
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Sin cambio
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {sinDatos.length > 0 && (
+                <details className="rounded-card border border-outline/40">
+                  <summary className="cursor-pointer px-4 py-3 text-label font-medium text-on-surface-variant select-none">
+                    {sinDatos.length} plantilla(s) sin suficientes datos (mín. {preview.minMuestras} muestras)
+                  </summary>
+                  <ul className="grid gap-1 border-t border-outline/30 px-4 py-3">
+                    {sinDatos.map((r) => (
+                      <li key={r.plantillaId} className="flex items-center gap-2 text-label text-on-surface-variant">
+                        <Clock className="h-3.5 w-3.5 shrink-0" />
+                        <span className="font-medium text-on-surface">{r.tipologiaClave}</span>
+                        <span className="flex-1">{r.nombre}</span>
+                        <span>{r.muestras}/{preview.minMuestras} muestras</span>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              {preview.total === 0 && (
+                <p className="text-label text-on-surface-variant">No hay plantillas de tarea configuradas.</p>
+              )}
+            </>
+          )}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+// ─── TRD §8: Evals contra datasets dorados ───────────────────────────────────
+
+function SeccionEvals() {
+  const qc = useQueryClient();
+  const [error, setError] = useState(null);
+
+  const { data: casos = [] } = useQuery({ queryKey: ['eval-casos'], queryFn: () => api.get('/api/evals/casos') });
+  const { data: ultima } = useQuery({ queryKey: ['eval-resultados'], queryFn: () => api.get('/api/evals/resultados') });
+
+  const correr = useMutation({
+    mutationFn: () => api.post('/api/evals/correr', {}),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['eval-resultados'] }); setError(null); },
+    onError: (e) => setError(e.message),
+  });
+
+  const resultados = ultima?.resultados ?? [];
+  const aprobados = resultados.filter((r) => r.aprobado).length;
+
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <FlaskConical className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle>Evals contra datasets dorados</CardTitle>
+              <p className="mt-1 text-label text-on-surface-variant">
+                Cada agente se mide contra los proyectos históricos (TRD §8). Un prompt no debería promoverse a producción sin pasar sus evals.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody className="pt-0">
+          {/* Casos cargados */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
+            <span className="text-label text-on-surface-variant">{casos.length} caso(s) dorado(s) cargado(s):</span>
+            {casos.map((c) => (
+              <span key={c.id} className="rounded-full bg-surface-variant px-2 py-0.5 text-xs text-on-surface-variant">{c.agente} · {c.id}</span>
+            ))}
+            {casos.length === 0 && (
+              <span className="text-label text-warning">Sin casos. Agrega archivos en <code className="font-mono">backend/evals/</code> (ver README).</span>
+            )}
+          </div>
+
+          <Button variant="filled" size="sm" loading={correr.isPending} disabled={casos.length === 0}
+            onClick={() => correr.mutate()} leadingIcon={<Play className="h-3.5 w-3.5" />}>
+            Correr evals {casos.length > 0 ? `(${casos.length})` : ''}
+          </Button>
+          <p className="mt-1 text-xs text-on-surface-variant">Consume créditos de LLM: corre cada agente sobre su archivo real.</p>
+          {error && <p className="mt-2 text-label text-error">{error}</p>}
+
+          {/* Resultados de la última corrida */}
+          {resultados.length > 0 && (
+            <div className="mt-5">
+              <div className="flex items-center gap-2 mb-2">
+                <p className="text-label font-semibold text-on-surface">Última corrida</p>
+                <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${aprobados === resultados.length ? 'bg-success/15 text-success' : 'bg-warning/20 text-warning'}`}>
+                  {aprobados}/{resultados.length} aprobados
+                </span>
+                {ultima?.fecha && <span className="text-xs text-on-surface-variant">{new Date(ultima.fecha).toLocaleString('es-MX')}</span>}
+              </div>
+              <ul className="grid gap-2">
+                {resultados.map((r) => (
+                  <li key={r.id} className={`rounded-card border px-4 py-3 text-label ${r.error ? 'border-error/30 bg-error/5' : r.aprobado ? 'border-success/30 bg-success/5' : 'border-warning/40 bg-warning/5'}`}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {r.error ? <AlertCircle className="h-4 w-4 text-error" /> : r.aprobado ? <CheckCircle2 className="h-4 w-4 text-success" /> : <XCircleIcon />}
+                      <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-semibold text-primary">{r.agente}</span>
+                      <span className="font-medium text-on-surface">{r.casoId}</span>
+                      {r.versionPrompt && <span className="text-xs text-on-surface-variant">prompt v{r.versionPrompt}</span>}
+                      {r.score != null && <span className="ml-auto text-xs text-on-surface-variant">score {r.score}</span>}
+                    </div>
+                    {r.error
+                      ? <p className="mt-1 text-xs text-error">{r.error}</p>
+                      : <p className="mt-1 text-xs text-on-surface-variant font-mono">{Object.entries(r.metricas || {}).map(([k, v]) => `${k}: ${v}`).join('  ·  ')}</p>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+function XCircleIcon() {
+  return <AlertCircle className="h-4 w-4 text-warning" />;
+}
+
+// ─── TRD 4.6: Versionado de prompts de agentes ───────────────────────────────
+
+const AGENTE_LABEL = {
+  'AG-01': 'Cuantificación',
+  'AG-02': 'Auditor input QA',
+  'AG-03': 'Memorias de cálculo',
+  'AG-04': 'RAG normativo',
+  'AG-05': 'Plan checker',
+};
+
+function SeccionPrompts() {
+  const qc = useQueryClient();
+  const [editando, setEditando] = useState(null); // { agente, clave, contenidoBase }
+  const [form, setForm] = useState({ version: '', contenido: '', changelog: '' });
+  const [error, setError] = useState(null);
+
+  const { data: grupos = [], isLoading } = useQuery({
+    queryKey: ['admin-prompts'],
+    queryFn: () => api.get('/api/prompts'),
+  });
+
+  const crear = useMutation({
+    mutationFn: () => api.post('/api/prompts', {
+      agente: editando.agente, clave: editando.clave,
+      version: form.version.trim(), contenido: form.contenido,
+      changelog: form.changelog.trim() || null, activar: true,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-prompts'] });
+      setEditando(null); setForm({ version: '', contenido: '', changelog: '' }); setError(null);
+    },
+    onError: (e) => setError(e.message),
+  });
+
+  const activar = useMutation({
+    mutationFn: (id) => api.patch(`/api/prompts/${id}/activar`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-prompts'] }),
+  });
+
+  const eliminar = useMutation({
+    mutationFn: (id) => api.del(`/api/prompts/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-prompts'] }),
+  });
+
+  function abrirEditor(g) {
+    const activa = g.versiones.find(v => v.activa) ?? g.versiones[0];
+    // Sugerir siguiente patch version
+    const partes = (activa?.version ?? '1.0.0').split('.').map(Number);
+    partes[2] = (partes[2] || 0) + 1;
+    setEditando({ agente: g.agente, clave: g.clave });
+    setForm({ version: partes.join('.'), contenido: activa?.contenido ?? '', changelog: '' });
+    setError(null);
+  }
+
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <GitBranch className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle>Prompts de agentes (versionados)</CardTitle>
+              <p className="mt-1 text-label text-on-surface-variant">
+                Cada agente usa su prompt activo. Crea una versión nueva, edítala y actívala sin tocar código (TRD §4.6). La versión usada queda registrada en cada ejecución.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody className="pt-0">
+          {isLoading && <p className="text-label text-on-surface-variant">Cargando…</p>}
+          {!isLoading && grupos.length === 0 && (
+            <p className="text-label text-on-surface-variant">
+              No hay prompts sembrados. Corre <code className="font-mono">node prisma/seedPrompts.js</code> en el backend.
+            </p>
+          )}
+
+          <div className="grid gap-3">
+            {grupos.map((g) => {
+              const activa = g.versiones.find(v => v.activa);
+              return (
+                <div key={`${g.agente}-${g.clave}`} className="rounded-card border border-outline/60 bg-surface p-4">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
+                    <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-semibold text-primary">{g.agente}</span>
+                    <span className="font-medium text-on-surface">{AGENTE_LABEL[g.agente] ?? g.agente}</span>
+                    <span className="text-on-surface-variant text-label">· {g.clave}</span>
+                    <button onClick={() => abrirEditor(g)}
+                      className="ml-auto flex items-center gap-1 rounded-control px-2 py-1 text-xs text-primary hover:bg-primary/10">
+                      <Plus className="h-3 w-3" /> Nueva versión
+                    </button>
+                  </div>
+
+                  {/* Versiones */}
+                  <ul className="grid gap-1.5">
+                    {g.versiones.map((v) => (
+                      <li key={v.id} className={`flex flex-wrap items-center gap-2 rounded-control px-3 py-2 text-label ${v.activa ? 'bg-success/10 border border-success/30' : 'bg-surface-variant/40'}`}>
+                        <span className="font-mono text-xs font-semibold">v{v.version}</span>
+                        {v.activa
+                          ? <span className="rounded-full bg-success/20 px-1.5 py-0.5 text-xs text-success flex items-center gap-1"><CheckCircle2 className="h-3 w-3" /> Activa</span>
+                          : <button onClick={() => activar.mutate(v.id)} className="rounded-full border border-outline/50 px-2 py-0.5 text-xs text-on-surface-variant hover:bg-primary/10 hover:text-primary">Activar</button>}
+                        {v.changelog && <span className="text-on-surface-variant text-xs truncate flex-1 min-w-0">{v.changelog}</span>}
+                        {!v.activa && (
+                          <button onClick={() => eliminar.mutate(v.id)} className="text-on-surface-variant hover:text-error" title="Eliminar">
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+
+                  {/* Editor inline */}
+                  {editando?.agente === g.agente && editando?.clave === g.clave && (
+                    <div className="mt-3 rounded-card border border-primary/30 bg-primary/5 p-3">
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        <input value={form.version} onChange={e => setForm(f => ({...f, version: e.target.value}))}
+                          placeholder="Versión (ej: 1.0.1)"
+                          className="h-9 w-36 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary" />
+                        <input value={form.changelog} onChange={e => setForm(f => ({...f, changelog: e.target.value}))}
+                          placeholder="Changelog (qué cambió y por qué)"
+                          className="h-9 flex-1 min-w-[200px] rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary" />
+                      </div>
+                      <textarea value={form.contenido} onChange={e => setForm(f => ({...f, contenido: e.target.value}))}
+                        rows={10}
+                        className="w-full rounded-control border border-outline bg-surface px-3 py-2 text-body-sm font-mono text-on-surface outline-none focus:border-primary resize-y" />
+                      {error && <p className="mt-1 text-label text-error">{error}</p>}
+                      <div className="mt-2 flex gap-2">
+                        <Button size="sm" variant="filled" loading={crear.isPending}
+                          onClick={() => crear.mutate()} disabled={!form.version.trim() || !form.contenido.trim()}>
+                          Crear y activar
+                        </Button>
+                        <Button size="sm" variant="text" onClick={() => { setEditando(null); setError(null); }}>Cancelar</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+// ─── MOD-I: Memoria organizacional ───────────────────────────────────────────
+
+function SeccionMemoriaOrg() {
+  const qc = useQueryClient();
+  const FORM_VACIO = { slug: '', tipologia: '', municipio: '', resumen: '', tipoCimentacion: '', sistemaEstructural: '', problemas: '', observaciones: '' };
+  const [form, setForm] = useState(FORM_VACIO);
+  const [error, setError] = useState(null);
+
+  const { data: memorias = [], isLoading } = useQuery({
+    queryKey: ['admin-memorias'],
+    queryFn: () => api.get('/api/memoria'),
+  });
+
+  const indexar = useMutation({
+    mutationFn: () => api.post('/api/memoria', {
+      slug: form.slug.trim(),
+      tipologia: form.tipologia.trim() || null,
+      municipio: form.municipio.trim() || null,
+      resumen: form.resumen.trim(),
+      metadatos: {
+        tipoCimentacion: form.tipoCimentacion.trim() || null,
+        sistemaEstructural: form.sistemaEstructural.trim() || null,
+        problemas: form.problemas.split(',').map(s => s.trim()).filter(Boolean),
+        observaciones: form.observaciones.trim() || null,
+      },
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['admin-memorias'] }); setForm(FORM_VACIO); setError(null); },
+    onError: (e) => setError(e.message),
+  });
+
+  const eliminar = useMutation({
+    mutationFn: (id) => api.del(`/api/memoria/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-memorias'] }),
+  });
+
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Brain className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle>Memoria organizacional</CardTitle>
+              <p className="mt-1 text-label text-on-surface-variant">
+                Proyectos entregados indexados para sugerir similares al crear uno nuevo. Los datos son anonimizados — no aparece nombre del cliente.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody className="pt-0">
+
+          {/* Formulario */}
+          <div className="mb-5 rounded-card border border-outline/60 bg-surface-variant/30 p-4">
+            <p className="mb-3 text-label font-semibold text-on-surface flex items-center gap-2">
+              <Database className="h-4 w-4 text-primary" /> Indexar proyecto entregado
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <input value={form.slug} onChange={e => setForm(f => ({...f, slug: e.target.value}))}
+                placeholder="Nombre anónimo * (ej: Casa Hab. NL-001)"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary sm:col-span-2 lg:col-span-1" />
+              <input value={form.tipologia} onChange={e => setForm(f => ({...f, tipologia: e.target.value}))}
+                placeholder="Clave tipología (ej: T1)"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary" />
+              <input value={form.municipio} onChange={e => setForm(f => ({...f, municipio: e.target.value}))}
+                placeholder="Municipio"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary" />
+              <input value={form.tipoCimentacion} onChange={e => setForm(f => ({...f, tipoCimentacion: e.target.value}))}
+                placeholder="Tipo de cimentación (ej: Pilotes de concreto)"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary" />
+              <input value={form.sistemaEstructural} onChange={e => setForm(f => ({...f, sistemaEstructural: e.target.value}))}
+                placeholder="Sistema estructural (ej: Muros de concreto)"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary" />
+              <input value={form.problemas} onChange={e => setForm(f => ({...f, problemas: e.target.value}))}
+                placeholder="Problemas encontrados (separados por coma)"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary sm:col-span-2 lg:col-span-3" />
+              <textarea value={form.resumen} onChange={e => setForm(f => ({...f, resumen: e.target.value}))}
+                placeholder="Resumen del proyecto * — descripción técnica breve, usos, características estructurales relevantes"
+                rows={3}
+                className="rounded-control border border-outline bg-surface px-3 py-2 text-body text-on-surface outline-none focus:border-primary sm:col-span-2 lg:col-span-3 resize-none" />
+            </div>
+            {error && <p className="mt-2 text-label text-error">{error}</p>}
+            <p className="mt-2 text-xs text-on-surface-variant">El resumen se vectoriza con Voyage AI (~0.0002 USD por entrada).</p>
+            <div className="mt-3">
+              <Button variant="filled" size="sm" loading={indexar.isPending}
+                onClick={() => indexar.mutate()} disabled={!form.slug.trim() || !form.resumen.trim()}>
+                Indexar en memoria
+              </Button>
+            </div>
+          </div>
+
+          {/* Lista */}
+          {isLoading && <p className="text-label text-on-surface-variant">Cargando…</p>}
+          {memorias.length === 0 && !isLoading && (
+            <p className="text-label text-on-surface-variant">No hay proyectos indexados aún. Agrega el primero arriba.</p>
+          )}
+          <ul className="grid gap-2">
+            {memorias.map((m) => {
+              const meta = typeof m.metadatos === 'string' ? JSON.parse(m.metadatos) : m.metadatos;
+              return (
+                <li key={m.id} className="flex items-start gap-3 rounded-card border border-outline/50 bg-surface px-4 py-3 text-label">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold text-on-surface">{m.slug}</span>
+                      {m.tipologia && <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-primary">{m.tipologia}</span>}
+                      {m.municipio && <span className="text-on-surface-variant">{m.municipio}</span>}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-on-surface-variant">
+                      {meta?.tipoCimentacion && <span>Cimentación: {meta.tipoCimentacion}</span>}
+                      {meta?.sistemaEstructural && <span>Sistema: {meta.sistemaEstructural}</span>}
+                      {meta?.problemas?.length > 0 && <span>Problemas: {meta.problemas.join(', ')}</span>}
+                    </div>
+                  </div>
+                  <button onClick={() => eliminar.mutate(m.id)}
+                    className="shrink-0 text-on-surface-variant hover:text-error" title="Eliminar">
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </CardBody>
+      </Card>
+    </div>
+  );
+}
+
+// ─── Normativa aplicable (RF-A05) ────────────────────────────────────────────
+
+const JURISDICCION_META = {
+  federal:   { label: 'Federal',   icon: Globe,     color: 'text-on-surface-variant bg-surface-variant' },
+  estatal:   { label: 'Estatal',   icon: Building2, color: 'text-secondary bg-secondary/15' },
+  municipal: { label: 'Municipal', icon: BookOpen,  color: 'text-primary bg-primary/15' },
+};
+
+function SeccionNormativa() {
+  const qc = useQueryClient();
+  const [form, setForm] = useState({ jurisdiccion: 'municipal', nombre: '', clave: '', aplicaEn: '', descripcion: '', urlReferencia: '' });
+  const [error, setError] = useState(null);
+
+  const { data: normativas, isLoading } = useQuery({
+    queryKey: ['admin-normativa'],
+    queryFn: () => api.get('/api/normativa/admin'),
+  });
+
+  const crear = useMutation({
+    mutationFn: () => api.post('/api/normativa/admin', {
+      ...form,
+      aplicaEn: form.aplicaEn.split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin-normativa'] });
+      setForm({ jurisdiccion: 'municipal', nombre: '', clave: '', aplicaEn: '', descripcion: '', urlReferencia: '' });
+      setError(null);
+    },
+    onError: (e) => setError(e.message),
+  });
+
+  const toggleActivo = useMutation({
+    mutationFn: ({ id, activo }) => api.patch(`/api/normativa/admin/${id}`, { activo: !activo }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-normativa'] }),
+  });
+
+  const eliminar = useMutation({
+    mutationFn: (id) => api.del(`/api/normativa/admin/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin-normativa'] }),
+  });
+
+  const grupos = { federal: [], estatal: [], municipal: [] };
+  for (const n of normativas ?? []) (grupos[n.jurisdiccion] ?? []).push(n);
+
+  return (
+    <div className="grid gap-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <BookOpen className="h-5 w-5 text-primary" />
+            <div>
+              <CardTitle>Matriz de normativa aplicable</CardTitle>
+              <p className="mt-1 text-label text-on-surface-variant">
+                Se sugiere automáticamente al crear un proyecto según el municipio. Alimenta a AG-04 para preseleccionar corpus normativo.
+              </p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardBody className="pt-0">
+          {/* Formulario alta */}
+          <div className="mb-5 rounded-card border border-outline/60 bg-surface-variant/30 p-4">
+            <p className="mb-3 text-label font-semibold text-on-surface">Agregar normativa</p>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+              <select
+                value={form.jurisdiccion}
+                onChange={(e) => setForm((f) => ({ ...f, jurisdiccion: e.target.value }))}
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary"
+              >
+                <option value="federal">Federal</option>
+                <option value="estatal">Estatal</option>
+                <option value="municipal">Municipal</option>
+              </select>
+              <input
+                value={form.nombre}
+                onChange={(e) => setForm((f) => ({ ...f, nombre: e.target.value }))}
+                placeholder="Nombre del reglamento *"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary"
+              />
+              <input
+                value={form.clave}
+                onChange={(e) => setForm((f) => ({ ...f, clave: e.target.value }))}
+                placeholder="Clave (ej. RCM-2023)"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary"
+              />
+              {form.jurisdiccion === 'municipal' && (
+                <input
+                  value={form.aplicaEn}
+                  onChange={(e) => setForm((f) => ({ ...f, aplicaEn: e.target.value }))}
+                  placeholder="Municipios (separados por coma)"
+                  className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary sm:col-span-2"
+                />
+              )}
+              <input
+                value={form.descripcion}
+                onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))}
+                placeholder="Descripción breve"
+                className="h-10 rounded-control border border-outline bg-surface px-3 text-body text-on-surface outline-none focus:border-primary lg:col-span-2"
+              />
+            </div>
+            {error && <p className="mt-2 text-label text-error">{error}</p>}
+            <div className="mt-3">
+              <Button variant="filled" size="sm" loading={crear.isPending} onClick={() => crear.mutate()} disabled={!form.nombre.trim()}>
+                Agregar
+              </Button>
+            </div>
+          </div>
+
+          {/* Listado agrupado */}
+          {isLoading && <p className="text-label text-on-surface-variant">Cargando...</p>}
+          {['federal', 'estatal', 'municipal'].map((jur) => (
+            grupos[jur].length === 0 ? null : (
+              <div key={jur} className="mb-4">
+                <p className="mb-2 flex items-center gap-2 text-label font-semibold text-on-surface uppercase tracking-[0.08em]">
+                  <span className={`rounded-full px-2 py-0.5 text-xs ${JURISDICCION_META[jur].color}`}>
+                    {JURISDICCION_META[jur].label}
+                  </span>
+                </p>
+                <ul className="grid gap-2">
+                  {grupos[jur].map((n) => (
+                    <li key={n.id} className={`flex flex-wrap items-start gap-3 rounded-card border px-4 py-3 text-label ${n.activo ? 'border-outline/60 bg-surface' : 'border-outline/30 bg-surface-variant/20 opacity-60'}`}>
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-on-surface">{n.nombre}</p>
+                        <div className="mt-1 flex flex-wrap gap-2 text-on-surface-variant">
+                          {n.clave && <span className="font-mono">{n.clave}</span>}
+                          {n.aplicaEn.length > 0 && (
+                            <span>· {n.aplicaEn.join(', ')}</span>
+                          )}
+                          {n.descripcion && <span>· {n.descripcion}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          onClick={() => toggleActivo.mutate({ id: n.id, activo: n.activo })}
+                          className="text-label text-on-surface-variant hover:text-primary"
+                          title={n.activo ? 'Desactivar' : 'Activar'}
+                        >
+                          {n.activo ? <ToggleRight className="h-4 w-4 text-primary" /> : <ToggleLeft className="h-4 w-4" />}
+                        </button>
+                        <button
+                          onClick={() => eliminar.mutate(n.id)}
+                          className="text-label text-on-surface-variant hover:text-error"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )
+          ))}
         </CardBody>
       </Card>
     </div>

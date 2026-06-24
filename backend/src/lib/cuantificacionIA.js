@@ -1,6 +1,7 @@
 import XLSX from 'xlsx';
 import { anthropic } from './anthropic.js';
 import { calcularCostoAnthropic } from './costos.js';
+import { obtenerPrompt } from './prompts.js';
 
 const ESQUEMA_CATALOGO = {
   type: 'object',
@@ -14,8 +15,9 @@ const ESQUEMA_CATALOGO = {
           concepto: { type: 'string' },
           unidad: { type: 'string' },
           cantidad: { type: 'number' },
+          confianza: { type: 'number', description: 'Confianza 0-100 de la cantidad y el mapeo de este concepto (100=dato directo del Excel; <70=interpolado o ambiguo)' },
         },
-        required: ['clave', 'concepto', 'unidad', 'cantidad'],
+        required: ['clave', 'concepto', 'unidad', 'cantidad', 'confianza'],
         additionalProperties: false,
       },
     },
@@ -25,7 +27,7 @@ const ESQUEMA_CATALOGO = {
   additionalProperties: false,
 };
 
-const SYSTEM_PROMPT = `Eres un ingeniero estructural senior con experiencia en cuantificacion de obra en Mexico (Nuevo Leon). Recibes datos tabulares de cuantificacion estructural y generas un catalogo de conceptos de obra con cantidades calculadas.
+export const SYSTEM_PROMPT_AG01 = `Eres un ingeniero estructural senior con experiencia en cuantificacion de obra en Mexico (Nuevo Leon). Recibes datos tabulares de cuantificacion estructural y generas un catalogo de conceptos de obra con cantidades calculadas.
 
 CALCULOS REQUERIDOS:
 - Concreto (M3): para cada elemento suma cantidad × volumen. Pilotes: π×(D/2)²×L÷1e6. Dados/columnas/trabes/muros: B×H×L×N÷1e6. Losas: area×t÷100. Convierte cm→m.
@@ -38,6 +40,10 @@ FORMATO DEL CATALOGO:
 - Unidades: M3, KG, M2, ML, PZA
 - Cantidades redondeadas a 2 decimales
 - Si no puedes calcular algo con certeza, agrega una advertencia y omite ese concepto o usa 0.
+
+CONFIANZA POR CONCEPTO:
+- Para cada concepto asigna "confianza" 0-100: 90-100 si la cantidad sale directa y clara del Excel; 70-89 si requiere un calculo simple bien soportado; <70 si interpolaste, asumiste algo o el dato es ambiguo.
+- Los conceptos con confianza <70 se marcaran para revision humana del ingeniero.
 
 IMPORTANTE: Solo usa numeros del Excel. No inventes valores.`;
 
@@ -58,11 +64,12 @@ function excelToText(buffer) {
 
 export async function generarCatalogoCuantificacion(buffer) {
   const textoExcel = excelToText(buffer);
+  const prompt = await obtenerPrompt('AG-01', 'system', SYSTEM_PROMPT_AG01);
 
   const respuesta = await anthropic.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4000,
-    system: SYSTEM_PROMPT,
+    system: prompt.contenido,
     output_config: { format: { type: 'json_schema', schema: ESQUEMA_CATALOGO } },
     messages: [
       {
@@ -77,6 +84,7 @@ export async function generarCatalogoCuantificacion(buffer) {
   const resultado = JSON.parse(bloque.text);
   resultado._meta = {
     modelo: 'claude-sonnet-4-6',
+    versionPrompt: prompt.version,
     inputTokens: respuesta.usage?.input_tokens ?? 0,
     outputTokens: respuesta.usage?.output_tokens ?? 0,
     costoUsd: calcularCostoAnthropic('claude-sonnet-4-6', respuesta.usage?.input_tokens ?? 0, respuesta.usage?.output_tokens ?? 0),

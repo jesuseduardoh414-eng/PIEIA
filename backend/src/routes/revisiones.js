@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { requireAuth } from '../middleware/auth.js';
 import { rolEnProyecto } from '../lib/proyectoAcceso.js';
+import { permiteAccesoInterno } from '../lib/policy.js';
 import { desbloquearSucesoras } from './tareas.js';
 import { crearNotificacion, notificarMiembros } from '../lib/notificaciones.js';
 
@@ -35,8 +36,13 @@ router.post('/versiones/:versionId/revisiones', async (req, res, next) => {
     if (!['aprobado', 'con_observaciones'].includes(resultado)) {
       return res.status(400).json({ error: 'Resultado invalido' });
     }
+    // Cada observacion puede ser texto plano (legacy) o un objeto { texto, anclaje }
+    // donde anclaje es el markup sobre el plano / coordenadas de pagina (RF-D01).
     const observaciones = Array.isArray(req.body.observaciones)
-      ? req.body.observaciones.map((s) => String(s).trim()).filter(Boolean)
+      ? req.body.observaciones
+          .map((o) => (typeof o === 'string' ? { texto: o } : o))
+          .map((o) => ({ texto: String(o?.texto ?? '').trim(), anclaje: o?.anclaje ?? null }))
+          .filter((o) => o.texto)
       : [];
     if (resultado === 'con_observaciones' && observaciones.length === 0) {
       return res.status(400).json({ error: 'Indica al menos una observacion' });
@@ -52,7 +58,7 @@ router.post('/versiones/:versionId/revisiones', async (req, res, next) => {
           resultado,
           comentario: comentario || null,
           hashVersion: version.hashSha256, // firma: hash exacto de la version aprobada/observada
-          observaciones: { create: observaciones.map((texto) => ({ texto })) },
+          observaciones: { create: observaciones.map((o) => ({ texto: o.texto, anclaje: o.anclaje ?? undefined })) },
         },
         include: { observaciones: true, revisor: { select: { nombre: true } }, version: { select: { numero: true } } },
       });
@@ -101,7 +107,7 @@ router.get('/entregables/:entregableId/revisiones', async (req, res, next) => {
     });
     if (!ent) return res.status(404).json({ error: 'Entregable no encontrado' });
     const rol = await rolEnProyecto(req.user, ent.tarea.componente.proyectoId);
-    if (!rol || rol === 'cliente') return res.status(403).json({ error: 'Sin acceso' }); // RF-E05
+    if (!permiteAccesoInterno(rol)) return res.status(403).json({ error: 'Sin acceso' }); // RF-E05 / CA-E01
 
     const revisiones = await prisma.revision.findMany({
       where: { version: { entregableId: ent.id } },

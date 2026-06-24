@@ -3,11 +3,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 
-// En producción (SUPABASE_BUCKET definido) los archivos van a Supabase Storage.
-// En desarrollo van al disco local (backend/uploads) para no requerir bucket en dev.
+// Almacenamiento de entregables en Supabase Storage. IMPORTANTE: debe usar el
+// proyecto Supabase PROPIO de PIEIA (ref dnxicscudpgqcfdhdqgd), NO el del core/wabee
+// (SUPABASE_URL apunta al core, que es compartido y no controlamos). Por eso usa
+// variables DEDICADAS: STORAGE_SUPABASE_URL / STORAGE_SUPABASE_KEY / SUPABASE_BUCKET.
+// Si no están las tres, se usa disco local (dev) y nunca se escribe en el core.
 const BUCKET = process.env.SUPABASE_BUCKET;
-const SB_URL = process.env.SUPABASE_URL;
-const SB_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SB_URL = process.env.STORAGE_SUPABASE_URL;
+const SB_KEY = process.env.STORAGE_SUPABASE_KEY;
 const USE_SUPABASE = !!(BUCKET && SB_URL && SB_KEY);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,6 +82,24 @@ export async function obtenerStream(relPath) {
 export async function obtenerBuffer(relPath) {
   if (USE_SUPABASE) return sbDownloadBuffer(relPath);
   return fs.readFile(path.join(LOCAL_ROOT, relPath));
+}
+
+// Genera una URL firmada para subida directa desde el navegador (evita pasar por el backend).
+// Devuelve null si no se usa Supabase (dev local) o si Storage no responde — en ese caso
+// el frontend cae al upload por backend (multer), asi que nunca se pierde una subida.
+export async function generarUrlFirmadaSubida(relPath) {
+  if (!USE_SUPABASE) return null;
+  // Endpoint correcto de Supabase Storage para crear una signed upload URL.
+  const url = `${SB_URL}/storage/v1/object/upload/sign/${BUCKET}/${relPath}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { ...sbHeaders(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) return null;
+  const data = await res.json();
+  // data.url es la ruta relativa (incluye ?token=...); el PUT va a {SB_URL}/storage/v1{url}.
+  return data?.url ? `${SB_URL}/storage/v1${data.url}` : null;
 }
 
 export async function eliminarArchivo(relPath) {

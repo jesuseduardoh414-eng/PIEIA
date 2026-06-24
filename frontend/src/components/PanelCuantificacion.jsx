@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Download, FileSpreadsheet, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
+import { Plus, Trash2, Download, FileSpreadsheet, ChevronDown, ChevronUp, Pencil, Check, X, GitCompareArrows, ArrowRight, ArrowUp, ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { api, API_URL } from '@/lib/api';
 
@@ -135,10 +135,114 @@ function GridCuantificacion({ cuantificacionId, proyectoId, conceptos, puedEEdit
   );
 }
 
+const ESTADO_DELTA = {
+  agregada:   { label: 'Agregada',   clase: 'text-success bg-success/10' },
+  eliminada:  { label: 'Eliminada',  clase: 'text-error bg-error/10' },
+  modificada: { label: 'Modificada', clase: 'text-warning bg-warning/15' },
+  sin_cambio: { label: 'Sin cambio', clase: 'text-on-surface-variant bg-surface-variant' },
+};
+
+function fmtNum(n) { return Number(n).toLocaleString('es-MX', { maximumFractionDigits: 2 }); }
+function fmtMoney(n) { return n ? `$${Number(n).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'; }
+function DeltaNum({ v, money }) {
+  if (!v) return <span className="text-on-surface-variant">—</span>;
+  const pos = v > 0;
+  return (
+    <span className={`inline-flex items-center gap-0.5 font-mono ${pos ? 'text-error' : 'text-success'}`}>
+      {pos ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />}
+      {pos ? '+' : ''}{money ? fmtMoney(v) : fmtNum(v)}
+    </span>
+  );
+}
+
+// RF-G05: comparador de cuantificaciones entre versiones.
+function ComparadorCuantificaciones({ cuantificaciones }) {
+  const orden = [...cuantificaciones].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  const [idA, setIdA] = useState(orden[0]?.id);
+  const [idB, setIdB] = useState(orden[orden.length - 1]?.id);
+
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['comparar-cuant', idA, idB],
+    queryFn: () => api.get(`/api/cuantificaciones/${idA}/comparar/${idB}`),
+    enabled: !!idA && !!idB && idA !== idB,
+  });
+
+  const selectCls = 'rounded-control border border-outline-variant bg-surface px-3 py-1.5 text-body-sm text-on-surface';
+
+  return (
+    <div className="space-y-3 rounded-card border border-outline-variant bg-surface-variant/20 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-label font-medium text-on-surface">Comparar:</span>
+        <select value={idA} onChange={(e) => setIdA(e.target.value)} className={selectCls}>
+          {cuantificaciones.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
+        <ArrowRight className="h-4 w-4 text-on-surface-variant" />
+        <select value={idB} onChange={(e) => setIdB(e.target.value)} className={selectCls}>
+          {cuantificaciones.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+        </select>
+      </div>
+
+      {idA === idB && <p className="text-body-sm text-on-surface-variant">Elige dos versiones distintas.</p>}
+      {isLoading && <p className="text-body-sm text-on-surface-variant">Comparando…</p>}
+      {error && <p className="text-body-sm text-error">{error.message}</p>}
+
+      {data && (
+        <>
+          {/* Resumen de impacto */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="rounded-card bg-surface p-3">
+              <p className="text-xs text-on-surface-variant">Impacto en costo</p>
+              <p className="mt-0.5 text-title-sm font-semibold"><DeltaNum v={data.totales.deltaImporte} money /></p>
+            </div>
+            <div className="rounded-card bg-surface p-3"><p className="text-xs text-on-surface-variant">Agregadas</p><p className="mt-0.5 text-title-sm font-semibold text-success">{data.totales.agregadas}</p></div>
+            <div className="rounded-card bg-surface p-3"><p className="text-xs text-on-surface-variant">Modificadas</p><p className="mt-0.5 text-title-sm font-semibold text-warning">{data.totales.modificadas}</p></div>
+            <div className="rounded-card bg-surface p-3"><p className="text-xs text-on-surface-variant">Eliminadas</p><p className="mt-0.5 text-title-sm font-semibold text-error">{data.totales.eliminadas}</p></div>
+          </div>
+
+          {/* Tabla de diferencias */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-body-sm">
+              <thead><tr className="border-b border-outline-variant">
+                <th className="py-2 pr-2 text-left text-label font-medium text-on-surface-variant">Concepto</th>
+                <th className="py-2 pr-2 text-center text-label font-medium text-on-surface-variant">Und.</th>
+                <th className="py-2 pr-2 text-right text-label font-medium text-on-surface-variant">{data.a.nombre}</th>
+                <th className="py-2 pr-2 text-right text-label font-medium text-on-surface-variant">{data.b.nombre}</th>
+                <th className="py-2 pr-2 text-right text-label font-medium text-on-surface-variant">Δ Cantidad</th>
+                <th className="py-2 pr-2 text-right text-label font-medium text-on-surface-variant">Δ Costo</th>
+                <th className="py-2 text-left text-label font-medium text-on-surface-variant">Estado</th>
+              </tr></thead>
+              <tbody>
+                {data.filas.filter((f) => f.estado !== 'sin_cambio').map((f, i) => {
+                  const meta = ESTADO_DELTA[f.estado];
+                  return (
+                    <tr key={i} className="border-b border-outline-variant/40">
+                      <td className="py-2 pr-2 text-on-surface">{f.clave && <span className="font-mono text-xs text-primary mr-1">{f.clave}</span>}{f.descripcion}</td>
+                      <td className="py-2 pr-2 text-center text-on-surface-variant">{f.unidad}</td>
+                      <td className="py-2 pr-2 text-right font-mono text-on-surface-variant">{fmtNum(f.cantidadA)}</td>
+                      <td className="py-2 pr-2 text-right font-mono text-on-surface-variant">{fmtNum(f.cantidadB)}</td>
+                      <td className="py-2 pr-2 text-right"><DeltaNum v={f.deltaCantidad} /></td>
+                      <td className="py-2 pr-2 text-right"><DeltaNum v={f.deltaImporte} money /></td>
+                      <td className="py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-medium ${meta.clase}`}>{meta.label}</span></td>
+                    </tr>
+                  );
+                })}
+                {data.filas.every((f) => f.estado === 'sin_cambio') && (
+                  <tr><td colSpan={7} className="py-6 text-center text-body-sm text-on-surface-variant">No hay diferencias entre estas versiones.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function PanelCuantificacion({ proyectoId, miRol }) {
   const qc = useQueryClient();
   const [abierto, setAbierto] = useState(false);
   const [seleccionado, setSeleccionado] = useState(null);
+  const [comparando, setComparando] = useState(false);
   const puedEEditar = ['admin', 'coordinador', 'calculista'].includes(miRol);
 
   const { data: cuantificaciones = [] } = useQuery({
@@ -179,13 +283,22 @@ export default function PanelCuantificacion({ proyectoId, miRol }) {
                 Nueva version
               </Button>
             )}
+            {cuantificaciones.length >= 2 && (
+              <Button size="sm" variant={comparando ? 'filled' : 'text'} onClick={() => setComparando((v) => !v)} leadingIcon={<GitCompareArrows className="h-3.5 w-3.5" />}>
+                {comparando ? 'Cerrar comparador' : 'Comparar versiones'}
+              </Button>
+            )}
           </div>
 
           {cuantificaciones.length === 0 && (
             <p className="text-body-sm text-on-surface-variant">No hay cuantificaciones. {puedEEditar && 'Crea la primera version.'}</p>
           )}
 
-          {seleccionado && (
+          {comparando && cuantificaciones.length >= 2 && (
+            <ComparadorCuantificaciones cuantificaciones={cuantificaciones} />
+          )}
+
+          {seleccionado && !comparando && (
             <GridCuantificacion
               key={seleccionado}
               cuantificacionId={seleccionado}

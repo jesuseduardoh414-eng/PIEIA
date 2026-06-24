@@ -22,8 +22,14 @@ import invitaciones from './routes/invitaciones.js';
 import agentes from './routes/agentes.js';
 import catalogo from './routes/catalogo.js';
 import cuantificacion from './routes/cuantificacion.js';
+import normativa from './routes/normativa.js';
+import memoria from './routes/memoria.js';
+import prompts from './routes/prompts.js';
+import dxf from './routes/dxf.js';
+import evals from './routes/evals.js';
 import { requireAuth } from './middleware/auth.js';
 import { notFound, errorHandler } from './middleware/error.js';
+import { setupSentryErrorHandler } from './lib/sentry.js';
 
 export function createApp() {
   const app = express();
@@ -55,9 +61,16 @@ export function createApp() {
   app.use('/api/agentes', agentes);
   app.use('/api/catalogo', catalogo);
   app.use('/api', cuantificacion);
+  app.use('/api/normativa', normativa);
+  app.use('/api/memoria', memoria);
+  app.use('/api/prompts', prompts);
+  app.use('/api/dxf', dxf);
+  app.use('/api/evals', evals);
 
-  // Manejo de errores (siempre al final)
+  // Manejo de errores (siempre al final). El handler de Sentry va antes del nuestro:
+  // captura los 5xx y delega la respuesta a errorHandler (RNF-08).
   app.use(notFound);
+  setupSentryErrorHandler(app);
   app.use(errorHandler);
 
   return app;

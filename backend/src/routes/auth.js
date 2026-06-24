@@ -4,6 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { getCore } from '../lib/core.js';
 import { requireAuth, COOKIE_NAME } from '../middleware/auth.js';
 import { enviarCorreoPlantilla } from '../lib/mailer.js';
+import { decidirSuperficie } from '../lib/policy.js';
 import { loginSchema } from '@pieia/contracts';
 
 const router = Router();
@@ -28,9 +29,7 @@ async function publicUser(u) {
     select: { rol: true },
   });
   const roles = [...new Set(membresias.map((m) => m.rol))];
-  const esCliente = roles.includes('cliente');
-  const tieneRolStaff = roles.some((r) => r !== 'cliente');
-  const soloCliente = !u.esAdmin && esCliente && !tieneRolStaff;
+  const { esCliente, soloCliente } = decidirSuperficie({ esAdmin: u.esAdmin, roles });
 
   return { id: u.id, nombre: u.nombre, email: u.email, esAdmin: u.esAdmin, esCliente, soloCliente };
 }

@@ -13,10 +13,13 @@ export async function registrarEjecucion({ agente, proyectoId, tareaId, modelo, 
   });
 }
 
-export async function completarEjecucion(id, { outputs, scoreConfianza, costoUsd, duracionMs, estado = 'pendiente_validacion' }) {
+export async function completarEjecucion(id, { outputs, scoreConfianza, costoUsd, duracionMs, versionPrompt, estado = 'pendiente_validacion' }) {
   return prisma.ejecucionAgente.update({
     where: { id },
-    data: { outputs, scoreConfianza, costoUsd, duracionMs, estado },
+    data: {
+      outputs, scoreConfianza, costoUsd, duracionMs, estado,
+      ...(versionPrompt ? { versionPrompt } : {}),
+    },
   });
 }
 

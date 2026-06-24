@@ -1,0 +1,12 @@
+{
+  "plantilla": true,
+  "id": "ag02-castanos-suelos",
+  "agente": "AG-02",
+  "tipo": "mecanica_suelos",
+  "descripcion": "Mecánica de suelos Castaños (PLANTILLA — pon datos reales y quita plantilla:true)",
+  "archivo": "fixtures/castanos-suelos.pdf",
+  "esperado": {
+    "campos": { "capacidadCargaAdmisible": 0, "profundidadDesplante": 0, "tipoCimentacion": "" }
+  },
+  "tolerancias": { "numericoPct": 5, "recallMinPct": 90 }
+}

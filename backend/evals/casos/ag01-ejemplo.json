@@ -1,0 +1,13 @@
+{
+  "plantilla": true,
+  "id": "ag01-castanos",
+  "agente": "AG-01",
+  "descripcion": "Cuantificación Castaños de Vergel (PLANTILLA — pon datos reales y quita plantilla:true)",
+  "archivo": "fixtures/castanos-diseno.xlsx",
+  "esperado": {
+    "concretoM3": 0,
+    "aceroKg": 0,
+    "conceptosClave": []
+  },
+  "tolerancias": { "concretoPct": 5, "aceroPct": 5, "mapeoMinPct": 90 }
+}

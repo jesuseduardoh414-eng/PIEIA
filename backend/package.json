@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
+    "test": "node --test",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "node prisma/seed.js",
@@ -21,6 +22,7 @@
     "@pieia/contracts": "*",
     "@prisma/client": "^5.22.0",
     "@r4d-26/core": "^5.21.0",
+    "@sentry/node": "^10.60.0",
     "archiver": "^8.0.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",

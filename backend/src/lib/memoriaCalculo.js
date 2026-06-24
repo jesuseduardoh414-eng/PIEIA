@@ -1,5 +1,6 @@
 import { anthropic, MODELO_MEMORIA } from './anthropic.js';
 import { calcularCostoAnthropic } from './costos.js';
+import { obtenerPrompt } from './prompts.js';
 
 const ESQUEMA_MEMORIA = {
   type: 'object',
@@ -22,7 +23,7 @@ const ESQUEMA_MEMORIA = {
   additionalProperties: false,
 };
 
-const SYSTEM_PROMPT = `Eres un redactor tecnico que apoya a un despacho de ingenieria estructural en Monterrey, Nuevo Leon, Mexico, a producir memorias de calculo.
+export const SYSTEM_PROMPT_AG03 = `Eres un redactor tecnico que apoya a un despacho de ingenieria estructural en Monterrey, Nuevo Leon, Mexico, a producir memorias de calculo.
 
 Tu unico trabajo es redactar prosa formal de ingenieria alrededor de los datos numericos que el usuario te entrega. Reglas estrictas:
 - NUNCA inventes valores numericos, unidades, dimensiones, cargas, resistencias, factores ni referencias normativas (NTC, RCDF, NOM, etc.) que no esten explicitamente en los "Datos de diseno" proporcionados.
@@ -43,10 +44,12 @@ Tarea / componente de la memoria: ${tarea.nombre}
 Datos de diseno (unica fuente de numeros permitida):
 ${datosDiseno}`;
 
+  const prompt = await obtenerPrompt('AG-03', 'system', SYSTEM_PROMPT_AG03);
+
   const respuesta = await anthropic.messages.create({
     model: MODELO_MEMORIA,
     max_tokens: 8000,
-    system: SYSTEM_PROMPT,
+    system: prompt.contenido,
     output_config: { format: { type: 'json_schema', schema: ESQUEMA_MEMORIA } },
     messages: [{ role: 'user', content: contexto }],
   });
@@ -56,6 +59,7 @@ ${datosDiseno}`;
   const resultado = JSON.parse(bloque.text);
   resultado._meta = {
     modelo: MODELO_MEMORIA,
+    versionPrompt: prompt.version,
     inputTokens: respuesta.usage?.input_tokens ?? 0,
     outputTokens: respuesta.usage?.output_tokens ?? 0,
     costoUsd: calcularCostoAnthropic(MODELO_MEMORIA, respuesta.usage?.input_tokens ?? 0, respuesta.usage?.output_tokens ?? 0),

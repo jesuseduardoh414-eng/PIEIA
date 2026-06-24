@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, FileSpreadsheet, Download, AlertCircle, Loader2, BrainCircuit, BookOpen, Send, FileText, ClipboardList, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { Upload, FileSpreadsheet, Download, AlertCircle, Loader2, BrainCircuit, BookOpen, Send, FileText, ClipboardList, CheckCircle, XCircle, Clock, ChevronDown, ChevronUp, ShieldCheck, ShieldAlert, Copy, Layers, Box, Ruler } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
-import { api } from '@/lib/api';
+import { api, esperarTrabajo } from '@/lib/api';
 
 function AgRAG() {
   const [pdfFile, setPdfFile] = useState(null);
@@ -37,7 +37,8 @@ function AgRAG() {
     if (!pregunta.trim()) return;
     setConsultando(true); setError(null); setRespuesta(null);
     try {
-      const res = await api.post('/api/agentes/ag04/consultar', { pregunta });
+      const { trabajoId } = await api.post('/api/agentes/ag04/consultar', { pregunta });
+      const res = await esperarTrabajo(trabajoId);
       setRespuesta(res);
     } catch (e) { setError(e.message); }
     finally { setConsultando(false); }
@@ -133,8 +134,10 @@ function AgRAG() {
             </div>
             <div className="flex flex-wrap gap-2">
               {respuesta.fuentes.map((f, i) => (
-                <span key={i} className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">
-                  {f.nombre.slice(0, 40)} · {f.similitud}
+                <span key={i} className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary" title={`Similitud ${f.similitud}`}>
+                  <FileText className="h-3 w-3 shrink-0" />
+                  {f.cita ? f.cita : f.nombre.slice(0, 40)}
+                  {f.pagina && !f.cita?.includes('p.') ? ` · p. ${f.pagina}` : ''}
                 </span>
               ))}
             </div>
@@ -248,6 +251,301 @@ function Bitacora() {
   );
 }
 
+// ─── Pipeline DXF: extractor de contenido de planos (TRD §4.5) ────────────────
+
+function ExtractorDxf() {
+  const [archivo, setArchivo] = useState(null);
+  const [cargando, setCargando] = useState(false);
+  const [datos, setDatos] = useState(null);
+  const [error, setError] = useState(null);
+  const [capaAbierta, setCapaAbierta] = useState(null);
+  const fileRef = useRef();
+
+  async function onExtraer() {
+    if (!archivo) return;
+    setCargando(true); setError(null); setDatos(null);
+    try {
+      const form = new FormData();
+      form.append('archivo', archivo);
+      const data = await api.upload('/api/dxf/extraer', form);
+      setDatos(data);
+    } catch (e) { setError(e.message); }
+    finally { setCargando(false); }
+  }
+
+  return (
+    <div className="rounded-card border border-outline-variant bg-surface p-6 space-y-5">
+      <div>
+        <div className="flex items-center gap-2">
+          <Layers className="h-4 w-4 text-primary" />
+          <h3 className="text-label font-semibold text-on-surface">Extractor de planos (DXF)</h3>
+        </div>
+        <p className="mt-1 text-body-sm text-on-surface-variant">
+          Extrae capas, textos (cuadros de armados, notas), bloques y dimensiones de un plano DXF.
+          Es la base que alimenta a AG-01 (cuantificación desde planos) y AG-05 (verificador). Para DWG se requiere ODA File Converter.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2 items-center">
+        <button onClick={() => fileRef.current?.click()}
+          className="flex h-9 items-center gap-1.5 rounded-control border border-outline-variant px-3 text-body-sm text-on-surface hover:bg-surface-variant">
+          <Upload className="h-3.5 w-3.5" />
+          {archivo ? archivo.name.slice(0, 35) + (archivo.name.length > 35 ? '…' : '') : 'Seleccionar .dxf / .dwg'}
+        </button>
+        <input ref={fileRef} type="file" accept=".dxf,.dwg" className="hidden"
+          onChange={(e) => { setArchivo(e.target.files[0]); setDatos(null); setError(null); }} />
+        <Button onClick={onExtraer} disabled={!archivo || cargando} size="sm"
+          leadingIcon={cargando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Layers className="h-3.5 w-3.5" />}>
+          {cargando ? 'Extrayendo…' : 'Extraer entidades'}
+        </Button>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-card bg-error/10 p-3 text-body-sm text-error">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+        </div>
+      )}
+
+      {datos && (
+        <div className="space-y-4">
+          {datos.convertidoDeDwg && (
+            <p className="text-label text-success">Convertido de DWG a DXF con ODA File Converter.</p>
+          )}
+          {/* Resumen */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {[
+              { icon: Layers, label: 'Capas', val: datos.resumen.capas },
+              { icon: FileText, label: 'Textos', val: datos.resumen.textos },
+              { icon: Box, label: 'Bloques', val: `${datos.resumen.bloquesTotal} (${datos.resumen.tiposBloque})` },
+              { icon: Ruler, label: 'Dimensiones', val: datos.resumen.dimensiones },
+            ].map((c) => (
+              <div key={c.label} className="rounded-card bg-surface-variant/50 p-3">
+                <div className="flex items-center gap-1.5 text-on-surface-variant">
+                  <c.icon className="h-3.5 w-3.5" />
+                  <span className="text-xs">{c.label}</span>
+                </div>
+                <p className="mt-0.5 text-title-sm font-semibold text-on-surface">{c.val}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Bloques */}
+          {Object.keys(datos.bloques).length > 0 && (
+            <div>
+              <p className="mb-2 text-label font-medium text-on-surface flex items-center gap-1.5"><Box className="h-3.5 w-3.5" /> Bloques insertados</p>
+              <div className="flex flex-wrap gap-2">
+                {Object.entries(datos.bloques).sort((a, b) => b[1] - a[1]).map(([nom, n]) => (
+                  <span key={nom} className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary">{nom} × {n}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Textos por capa */}
+          <div>
+            <p className="mb-2 text-label font-medium text-on-surface flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" /> Textos por capa</p>
+            <div className="space-y-1.5">
+              {Object.entries(datos.textosPorCapa).map(([capa, lista]) => (
+                <div key={capa} className="rounded-card border border-outline/40 bg-surface">
+                  <button onClick={() => setCapaAbierta(capaAbierta === capa ? null : capa)}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-body-sm text-on-surface hover:bg-surface-variant/40">
+                    {capaAbierta === capa ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                    <span className="font-medium">{capa}</span>
+                    <span className="text-on-surface-variant text-xs">({lista.length})</span>
+                  </button>
+                  {capaAbierta === capa && (
+                    <ul className="border-t border-outline/30 px-3 py-2 grid gap-0.5 max-h-64 overflow-y-auto">
+                      {lista.map((t, i) => (
+                        <li key={i} className="text-body-sm text-on-surface-variant font-mono whitespace-pre-wrap">{t}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── AG-02: Auditor de información inicial ────────────────────────────────────
+
+function AgAuditoria() {
+  const [pdfFile, setPdfFile]   = useState(null);
+  const [tipo, setTipo]         = useState('mecanica_suelos');
+  const [cargando, setCargando] = useState(false);
+  const [resultado, setResultado] = useState(null);
+  const [error, setError]       = useState(null);
+  const fileRef = useRef();
+
+  async function onAuditar() {
+    if (!pdfFile) return;
+    setCargando(true); setError(null); setResultado(null);
+    try {
+      const form = new FormData();
+      form.append('pdf', pdfFile);
+      form.append('tipo', tipo);
+      const { trabajoId } = await api.upload('/api/agentes/ag02/auditar', form);
+      const data = await esperarTrabajo(trabajoId);
+      setResultado(data);
+    } catch (e) { setError(e.message); }
+    finally { setCargando(false); }
+  }
+
+  function copiarSolicitud() {
+    if (resultado?.solicitudTexto) navigator.clipboard.writeText(resultado.solicitudTexto);
+  }
+
+  const pct = resultado
+    ? Math.round((resultado.camposPresentes.length / (resultado.camposPresentes.length + resultado.camposFaltantes.length)) * 100)
+    : null;
+
+  return (
+    <div className="rounded-card border border-outline-variant bg-surface p-6 space-y-5">
+      <div>
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          <h3 className="text-label font-semibold text-on-surface">AG-02 — Auditor de información inicial del cliente (Input QA)</h3>
+        </div>
+        <p className="mt-1 text-body-sm text-on-surface-variant">
+          Extrae datos clave de mecánica de suelos o topografía, detecta campos faltantes y genera una Solicitud de Información lista para enviar al cliente.
+        </p>
+      </div>
+
+      {/* Controles */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <select
+          value={tipo}
+          onChange={(e) => { setTipo(e.target.value); setResultado(null); }}
+          className="h-9 rounded-control border border-outline-variant bg-surface px-3 text-body-sm text-on-surface"
+        >
+          <option value="mecanica_suelos">Mecánica de suelos</option>
+          <option value="topografia">Topografía</option>
+        </select>
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="flex h-9 items-center gap-1.5 rounded-control border border-outline-variant px-3 text-body-sm text-on-surface hover:bg-surface-variant"
+        >
+          <Upload className="h-3.5 w-3.5" />
+          {pdfFile ? pdfFile.name.slice(0, 35) + (pdfFile.name.length > 35 ? '…' : '') : 'Seleccionar PDF'}
+        </button>
+        <input ref={fileRef} type="file" accept=".pdf" className="hidden"
+          onChange={(e) => { setPdfFile(e.target.files[0]); setResultado(null); setError(null); }} />
+        <Button onClick={onAuditar} disabled={!pdfFile || cargando} size="sm"
+          leadingIcon={cargando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}>
+          {cargando ? 'Analizando…' : 'Auditar documento'}
+        </Button>
+      </div>
+
+      {error && (
+        <div className="flex items-start gap-2 rounded-card bg-error/10 p-3 text-body-sm text-error">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /> {error}
+        </div>
+      )}
+
+      {resultado && (
+        <div className="space-y-4">
+          {/* Semáforo resumen */}
+          <div className={`flex items-center gap-3 rounded-card px-4 py-3 ${resultado.completo ? 'bg-success/10 border border-success/30' : 'bg-warning/10 border border-warning/30'}`}>
+            {resultado.completo
+              ? <CheckCircle className="h-5 w-5 text-success shrink-0" />
+              : <ShieldAlert className="h-5 w-5 text-warning shrink-0" />}
+            <div className="flex-1">
+              <p className="text-label font-semibold text-on-surface">
+                {resultado.completo ? 'Documento completo' : `Faltan ${resultado.camposFaltantes.length} campo${resultado.camposFaltantes.length > 1 ? 's' : ''} requerido${resultado.camposFaltantes.length > 1 ? 's' : ''}`}
+              </p>
+              <div className="mt-1.5 h-1.5 w-full rounded-full bg-outline/20">
+                <div className={`h-1.5 rounded-full ${resultado.completo ? 'bg-success' : 'bg-warning'}`} style={{ width: `${pct}%` }} />
+              </div>
+              <p className="mt-1 text-xs text-on-surface-variant">{resultado.camposPresentes.length} de {resultado.camposPresentes.length + resultado.camposFaltantes.length} campos extraídos</p>
+            </div>
+          </div>
+
+          {/* Aviso de revisión por baja confianza */}
+          {resultado.requiereRevision && (
+            <div className="flex items-start gap-2 rounded-card bg-warning/10 border border-warning/30 px-4 py-3 text-body-sm text-on-surface">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              <span>
+                <strong>{resultado.camposBajaConfianza.length} campo{resultado.camposBajaConfianza.length > 1 ? 's' : ''}</strong> con confianza menor a {resultado.umbralConfianza}%. Verifícalo(s) manualmente antes de usar (resaltados en ámbar).
+              </span>
+            </div>
+          )}
+
+          {/* Datos extraídos con confianza por campo */}
+          {resultado.camposPresentes.length > 0 && (
+            <div>
+              <p className="mb-2 text-label font-medium text-on-surface flex items-center gap-1.5">
+                <CheckCircle className="h-3.5 w-3.5 text-success" /> Datos encontrados
+              </p>
+              <ul className="grid gap-1.5 sm:grid-cols-2">
+                {resultado.camposPresentes.map((c) => {
+                  const conf = c.confianza;
+                  const colorConf = conf == null ? 'text-on-surface-variant bg-surface-variant'
+                    : conf >= 90 ? 'text-success bg-success/15'
+                    : conf >= 70 ? 'text-on-surface-variant bg-surface-variant'
+                    : 'text-warning bg-warning/20';
+                  return (
+                    <li key={c.clave} className={`flex items-center gap-2 rounded-control px-3 py-2 text-body-sm ${c.bajaConfianza ? 'bg-warning/10 border border-warning/40' : 'bg-surface-variant/50'}`}>
+                      <span className="text-on-surface-variant shrink-0">{c.label}:</span>
+                      <span className="font-semibold text-on-surface">{String(resultado.datos[c.clave])}{c.unidad ? ` ${c.unidad}` : ''}</span>
+                      {conf != null && (
+                        <span className={`ml-auto shrink-0 rounded-full px-1.5 py-0.5 text-xs font-medium ${colorConf}`}>{conf}%</span>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Campos faltantes */}
+          {resultado.camposFaltantes.length > 0 && (
+            <div>
+              <p className="mb-2 text-label font-medium text-on-surface flex items-center gap-1.5">
+                <XCircle className="h-3.5 w-3.5 text-error" /> Información faltante
+              </p>
+              <ul className="grid gap-1 sm:grid-cols-2">
+                {resultado.camposFaltantes.map((c) => (
+                  <li key={c.clave} className="flex items-center gap-2 rounded-control border border-error/30 bg-error/5 px-3 py-2 text-body-sm text-error">
+                    <span className="font-medium">{c.label}</span>
+                    {c.unidad && <span className="text-xs text-error/70">({c.unidad})</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* Observaciones del estudio */}
+          {resultado.datos.observaciones && (
+            <div className="rounded-card bg-surface-variant/40 px-4 py-3 text-body-sm text-on-surface-variant">
+              <p className="font-medium text-on-surface mb-1">Observaciones del estudio:</p>
+              <p>{resultado.datos.observaciones}</p>
+            </div>
+          )}
+
+          {/* Solicitud de información */}
+          {resultado.solicitudTexto && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-label font-medium text-on-surface">Solicitud de información generada</p>
+                <button onClick={copiarSolicitud}
+                  className="flex items-center gap-1 rounded-control px-2 py-1 text-xs text-primary hover:bg-primary/10">
+                  <Copy className="h-3 w-3" /> Copiar
+                </button>
+              </div>
+              <pre className="whitespace-pre-wrap rounded-card border border-outline/40 bg-surface-variant/30 px-4 py-3 text-body-sm text-on-surface font-sans leading-relaxed">
+                {resultado.solicitudTexto}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Agentes() {
   const [archivo, setArchivo] = useState(null);
   const [cargando, setCargando] = useState(false);
@@ -267,7 +565,8 @@ export default function Agentes() {
     try {
       const form = new FormData();
       form.append('excel', archivo);
-      const data = await api.upload('/api/agentes/ag01/cuantificar', form);
+      const { trabajoId } = await api.upload('/api/agentes/ag01/cuantificar', form);
+      const data = await esperarTrabajo(trabajoId);
       setResultado(data);
     } catch (err) {
       setError(err.message || 'Error al procesar el archivo');
@@ -305,6 +604,10 @@ export default function Agentes() {
       </div>
 
       <Bitacora />
+
+      <AgAuditoria />
+
+      <ExtractorDxf />
 
       <AgRAG />
 
@@ -377,6 +680,16 @@ export default function Agentes() {
               </div>
             )}
 
+            {(() => {
+              const baja = resultado.conceptos.filter((c) => typeof c.confianza === 'number' && c.confianza < 70).length;
+              return baja > 0 ? (
+                <div className="flex items-start gap-2 rounded-card bg-warning/10 border border-warning/30 px-4 py-3 text-body-sm text-on-surface">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+                  <span><strong>{baja} concepto{baja > 1 ? 's' : ''}</strong> con confianza menor a 70%. Revísalo(s) antes de usar en presupuesto (resaltados en ámbar).</span>
+                </div>
+              ) : null;
+            })()}
+
             <div className="overflow-x-auto">
               <table className="w-full text-body-sm">
                 <thead>
@@ -384,18 +697,28 @@ export default function Agentes() {
                     <th className="py-2 pr-4 text-left text-label font-medium text-on-surface-variant">Clave</th>
                     <th className="py-2 pr-4 text-left text-label font-medium text-on-surface-variant">Concepto</th>
                     <th className="py-2 pr-4 text-left text-label font-medium text-on-surface-variant">Unidad</th>
-                    <th className="py-2 text-right text-label font-medium text-on-surface-variant">Cantidad</th>
+                    <th className="py-2 pr-4 text-right text-label font-medium text-on-surface-variant">Cantidad</th>
+                    <th className="py-2 text-right text-label font-medium text-on-surface-variant">Conf.</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {resultado.conceptos.map((c, i) => (
-                    <tr key={i} className="border-b border-outline-variant/40 hover:bg-surface-variant/30">
-                      <td className="py-2 pr-4 font-mono text-xs text-primary">{c.clave}</td>
-                      <td className="py-2 pr-4 text-on-surface">{c.concepto}</td>
-                      <td className="py-2 pr-4 text-on-surface-variant">{c.unidad}</td>
-                      <td className="py-2 text-right font-mono text-on-surface">{c.cantidad.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</td>
-                    </tr>
-                  ))}
+                  {resultado.conceptos.map((c, i) => {
+                    const conf = c.confianza;
+                    const baja = typeof conf === 'number' && conf < 70;
+                    return (
+                      <tr key={i} className={`border-b border-outline-variant/40 hover:bg-surface-variant/30 ${baja ? 'bg-warning/10' : ''}`}>
+                        <td className="py-2 pr-4 font-mono text-xs text-primary">{c.clave}</td>
+                        <td className="py-2 pr-4 text-on-surface">{c.concepto}</td>
+                        <td className="py-2 pr-4 text-on-surface-variant">{c.unidad}</td>
+                        <td className="py-2 pr-4 text-right font-mono text-on-surface">{c.cantidad.toLocaleString('es-MX', { maximumFractionDigits: 2 })}</td>
+                        <td className="py-2 text-right">
+                          {typeof conf === 'number' ? (
+                            <span className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${conf >= 90 ? 'text-success bg-success/15' : conf >= 70 ? 'text-on-surface-variant bg-surface-variant' : 'text-warning bg-warning/20'}`}>{conf}%</span>
+                          ) : <span className="text-on-surface-variant">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

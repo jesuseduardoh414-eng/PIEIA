@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { rolEnProyecto } from '../lib/proyectoAcceso.js';
 import { obtenerBuffer } from '../lib/storage.js';
 import { obtenerToken, asegurarBucket, subirArchivo, iniciarTraduccion, obtenerManifiesto } from '../lib/aps.js';
+import { permiteAccesoInterno } from '../lib/policy.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -22,7 +23,7 @@ router.post('/versiones/:versionId/traducir', async (req, res, next) => {
 
     const proyectoId = version.entregable.tarea.componente.proyectoId;
     const rol = await rolEnProyecto(req.user, proyectoId);
-    if (!rol || rol === 'cliente') return res.status(403).json({ error: 'Sin acceso' });
+    if (!permiteAccesoInterno(rol)) return res.status(403).json({ error: 'Sin acceso' }); // CA-E01
 
     const buffer = await obtenerBuffer(version.storagePath);
 
@@ -57,7 +58,7 @@ router.get('/versiones/:versionId/aps', async (req, res, next) => {
     if (!version) return res.status(404).json({ error: 'Version no encontrada' });
 
     const rol = await rolEnProyecto(req.user, version.entregable.tarea.componente.proyectoId);
-    if (!rol || rol === 'cliente') return res.status(403).json({ error: 'Sin acceso' });
+    if (!permiteAccesoInterno(rol)) return res.status(403).json({ error: 'Sin acceso' }); // CA-E01
 
     if (!version.apsUrn) return res.json({ estado: 'no_subido' });
     if (version.apsListo) return res.json({ estado: 'listo', urn: version.apsUrn });
