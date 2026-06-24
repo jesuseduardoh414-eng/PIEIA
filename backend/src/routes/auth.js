@@ -15,10 +15,14 @@ const router = Router();
 const supabaseAuth = new SupabaseAuthService(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 // Vence junto con el token que emite el core (LoginUseCase lo firma fijo a 24h).
+// En produccion el frontend (Vercel) y el backend (Render) viven en dominios distintos:
+// la cookie de sesion necesita SameSite=None + Secure para viajar cross-site. En dev
+// (http://localhost) se usa Lax (None exige Secure, que localhost no tiene).
+const esProd = process.env.NODE_ENV === 'production';
 const cookieOpts = {
   httpOnly: true,
-  sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
+  sameSite: esProd ? 'none' : 'lax',
+  secure: esProd,
   maxAge: 24 * 60 * 60 * 1000,
   path: '/',
 };
