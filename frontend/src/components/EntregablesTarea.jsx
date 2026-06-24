@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Upload, FileText, Download, History, ShieldCheck, FileUp, Sparkles, Eye, Loader2, Trash2, TableProperties, FileCode } from 'lucide-react';
+import { Upload, FileText, Download, History, ShieldCheck, FileUp, Sparkles, Eye, Loader2, Trash2, TableProperties, FileCode, Ruler } from 'lucide-react';
 import { api, API_URL, uploadConProgreso, uploadDirecto, sha256Hex, esperarTrabajo } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { TIPO_ENTREGABLE, valores } from '@pieia/contracts';
@@ -52,6 +52,7 @@ export default function EntregablesTarea({ tareaId }) {
       </div>
       <FormSubir tareaId={tareaId} onDone={invalidar} />
       <FormGenerarIA tareaId={tareaId} onDone={invalidar} />
+      <FormGenerarPlanoIA tareaId={tareaId} onDone={invalidar} />
 
       {isLoading && <p className="mt-3 text-label text-on-surface-variant">Cargando entregables...</p>}
       {entregables?.length === 0 && (
@@ -205,6 +206,66 @@ function FormGenerarIA({ tareaId, onDone }) {
       <div className="flex flex-wrap items-center gap-2">
         <Button type="submit" size="sm" variant="filled" loading={mut.isPending} leadingIcon={<Sparkles className="h-4 w-4" />}>
           {mut.isPending ? 'Generando...' : 'Generar'}
+        </Button>
+        <Button type="button" size="sm" variant="text" onClick={() => setAbierto(false)} disabled={mut.isPending}>
+          Cancelar
+        </Button>
+      </div>
+      {error && <p className="text-label text-error">{error}</p>}
+    </form>
+  );
+}
+
+// Asistente de plano con IA (AG-06 lite): el usuario describe la casa y la IA genera un
+// boceto esquematico (PDF) como entregable "Borrador IA", visible en el visor y marcable.
+function FormGenerarPlanoIA({ tareaId, onDone }) {
+  const [abierto, setAbierto] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const [error, setError] = useState(null);
+
+  const mut = useMutation({
+    mutationFn: async (prompt) => {
+      const { trabajoId } = await api.post(`/api/tareas/${tareaId}/plano-ia`, { prompt });
+      return esperarTrabajo(trabajoId); // espera a que el worker dibuje el PDF
+    },
+    onSuccess: () => { setPrompt(''); setAbierto(false); onDone(); },
+    onError: (e) => setError(e.message),
+  });
+
+  const submit = (ev) => {
+    ev.preventDefault();
+    setError(null);
+    if (prompt.trim().length < 10) return setError('Describe la casa (recamaras, banos, cocina, cochera...)');
+    mut.mutate(prompt);
+  };
+
+  if (!abierto) {
+    return (
+      <Button type="button" size="sm" variant="tonal" className="mt-2 ml-2" leadingIcon={<Ruler className="h-4 w-4" />} onClick={() => setAbierto(true)}>
+        Generar plano con IA
+      </Button>
+    );
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-2 grid gap-2 rounded-card border border-outline/60 bg-surface p-3">
+      <label className="text-label font-medium text-on-surface">
+        Describe la casa que quieres (la IA disena la distribucion)
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={4}
+          placeholder="Ej. Casa de una planta con 3 recamaras (la principal con bano y closet), 2 banos, cocina, sala-comedor amplia y cochera para 2 autos."
+          className="mt-1 w-full rounded-control border border-outline bg-surface px-3 py-2 text-body text-on-surface outline-none focus:border-primary"
+        />
+      </label>
+      <p className="text-label text-on-surface-variant">
+        Genera un <b>boceto esquematico</b> (distribucion y areas aproximadas) como version del entregable "Plano esquematico (IA)".
+        Es un <b>Borrador IA</b> sin validez constructiva: lo valida el ingeniero. Lo podras ver en el visor y marcar observaciones.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="submit" size="sm" variant="filled" loading={mut.isPending} leadingIcon={<Ruler className="h-4 w-4" />}>
+          {mut.isPending ? 'Disenando...' : 'Generar plano'}
         </Button>
         <Button type="button" size="sm" variant="text" onClick={() => setAbierto(false)} disabled={mut.isPending}>
           Cancelar

@@ -7,6 +7,7 @@ import { consultarRAG } from './ragPDF.js';
 import { generarMemoriaCalculo } from './memoriaCalculo.js';
 import { construirDocxMemoria } from './wordMemoria.js';
 import { crearVersionEntregable } from './versiones.js';
+import { generarLayoutPlano, construirPdfPlano } from './planoIA.js';
 import { logger } from './logger.js';
 import { captureExcepcion } from './sentry.js';
 import { verificarAlertasCosto } from './alertasCosto.js';
@@ -58,6 +59,41 @@ const HANDLERS = {
     return {
       resultado: r,
       ejecucion: { outputs: { respuesta: r.respuesta?.slice(0, 300), fuentes: r.fuentes }, costoUsd: meta.costoUsd, versionPrompt: meta.versionPrompt, estado: 'pendiente_validacion' },
+    };
+  },
+
+  // Generador de plano esquematico desde un prompt (asistente AG-06 lite). Borrador IA.
+  async ag06_plano(job) {
+    const { tareaId, prompt, userId } = job.payload ?? {};
+    const tarea = await prisma.tarea.findUnique({ where: { id: tareaId } });
+    if (!tarea) throw new Error('Tarea no encontrada');
+
+    const layout = await generarLayoutPlano(prompt);
+    const meta = layout._meta ?? {};
+    delete layout._meta;
+    const buffer = await construirPdfPlano(layout);
+    const file = { originalname: `Plano esquematico IA - ${(layout.titulo || 'casa').slice(0, 40)}.pdf`, buffer, size: buffer.length };
+
+    // Se guarda como entregable tipo dwg_arquitectonico: asi se ve en el visor APS y se
+    // puede marcar (RF-D01). El contenido es PDF; APS lo traduce igual.
+    let entregable = await prisma.entregable.findFirst({
+      where: { tareaId: tarea.id, nombre: 'Plano esquematico (IA)' },
+      include: { versiones: { orderBy: { numero: 'desc' }, take: 1 } },
+    });
+    if (!entregable) {
+      entregable = await prisma.entregable.create({ data: { tareaId: tarea.id, nombre: 'Plano esquematico (IA)', tipo: 'dwg_arquitectonico' } });
+      entregable.versiones = [];
+    }
+    const siguiente = (entregable.versiones[0]?.numero || 0) + 1;
+    const version = await crearVersionEntregable(entregable.id, siguiente, file, userId, {
+      origen: 'agente',
+      notas: `Boceto esquematico generado por IA a partir de: "${String(prompt).slice(0, 120)}". Borrador IA, requiere validacion del ingeniero.`,
+    });
+    await prisma.entregable.update({ where: { id: entregable.id }, data: { versionActualId: version.id } });
+
+    return {
+      resultado: { entregableId: entregable.id, versionId: version.id, titulo: layout.titulo, habitaciones: layout.habitaciones?.length ?? 0 },
+      ejecucion: { outputs: { entregableId: entregable.id, versionId: version.id, titulo: layout.titulo }, costoUsd: meta.costoUsd, estado: 'pendiente_validacion' },
     };
   },
 
