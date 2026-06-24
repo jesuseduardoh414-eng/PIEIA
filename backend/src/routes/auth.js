@@ -5,7 +5,12 @@ import { getCore } from '../lib/core.js';
 import { requireAuth, COOKIE_NAME } from '../middleware/auth.js';
 import { enviarCorreoPlantilla } from '../lib/mailer.js';
 import { decidirSuperficie } from '../lib/policy.js';
+import { logger } from '../lib/logger.js';
 import { loginSchema } from '@pieia/contracts';
+
+// PIEIA deshabilita deliberadamente el 2FA del core (ver docs/ADR-002-2fa-deshabilitado.md).
+// Se puede reactivar el comportamiento del core poniendo PIEIA_2FA_BYPASS=false.
+const BYPASS_2FA = process.env.PIEIA_2FA_BYPASS !== 'false';
 
 const router = Router();
 
@@ -54,14 +59,15 @@ router.post('/login', async (req, res, next) => {
     const core = getCore();
     let resultado = await core.auth.login.execute({ email: data.email, password: data.password }, req.ip, req.headers['user-agent']);
 
-    // PIEIA no usa el sistema de roles del core. Si el perfil core tiene un globalRole
-    // con "admin" en el slug, el core fuerza setup de 2FA. Lo resolvemos removiendo ese
-    // globalRole (PIEIA gestiona admins con su propio campo esAdmin) y firmando el token
-    // directamente — NO reintentamos login.execute() porque LoginUseCase tiene un bug:
-    // con globalRole=null, `undefined.includes('admin')` lanza TypeError (sin optional chain).
-    // PIEIA no implementa 2FA. Si el core exige setup (rol admin) o código TOTP,
-    // firmamos el token directamente — la autenticación Supabase ya fue validada.
-    if ((resultado.requires2FASetup || resultado.requires2FA) && resultado.user?.id) {
+    // 2FA del core deshabilitado a proposito (ADR-002). El core fuerza setup de 2FA a
+    // perfiles con globalRole "admin"; PIEIA no implementa 2FA y gestiona admins con su
+    // propio campo esAdmin. IMPORTANTE: las credenciales YA fueron validadas por Supabase
+    // (login.execute solo devuelve requires2FA tras autenticar bien); aqui solo se omite el
+    // paso de 2FA, no se salta la autenticacion. Firmamos el token directamente — NO se
+    // reintenta login.execute() porque con globalRole=null tiene un bug (TypeError).
+    if (BYPASS_2FA && (resultado.requires2FASetup || resultado.requires2FA) && resultado.user?.id) {
+      logger.warn('Login: 2FA del core omitido (PIEIA no usa 2FA)', { usuario: resultado.user.email });
+
       // Best-effort: limpiar globalRoleId para que futuros logins no vuelvan a forzar 2FA.
       try {
         const corePrisma = getCorePrisma();
@@ -70,15 +76,21 @@ router.post('/login', async (req, res, next) => {
           data: { globalRoleId: null, emailVerifiedAt: new Date() },
         });
       } catch (dbErr) {
-        console.error('[Auth] DB fix globalRole error:', dbErr?.message);
+        logger.error('Login: no se pudo limpiar globalRole en el core', { mensaje: dbErr?.message });
       }
+
       // Firmamos con CORE_JWT_SECRET (el mismo que usa el core internamente).
-      const token = new JwtTokenProvider(process.env.CORE_JWT_SECRET, process.env.CORE_JWT_REFRESH_SECRET)
-        .sign(
-          { id: resultado.user.id, email: resultado.user.email, role: 'authenticated', global_role: 'user', productSlug: null },
-          { expiresIn: '24h' },
-        );
-      resultado = { success: true, token, user: resultado.user };
+      try {
+        const token = new JwtTokenProvider(process.env.CORE_JWT_SECRET, process.env.CORE_JWT_REFRESH_SECRET)
+          .sign(
+            { id: resultado.user.id, email: resultado.user.email, role: 'authenticated', global_role: 'user', productSlug: null },
+            { expiresIn: '24h' },
+          );
+        resultado = { success: true, token, user: resultado.user };
+      } catch (signErr) {
+        logger.error('Login: fallo al firmar el token (bypass 2FA)', { mensaje: signErr?.message });
+        return res.status(500).json({ error: 'No se pudo completar el inicio de sesion' });
+      }
     }
 
     if (resultado.requires2FA || resultado.requires2FASetup) {
